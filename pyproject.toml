@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vcon-twilio-adapter"
+version = "0.1.0"
+description = "Twilio recording to vCon adapter - receives Twilio webhooks and creates vCons"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "vCon Community"}
+]
+keywords = ["vcon", "twilio", "adapter", "conserver", "telephony", "recordings"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Telephony",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "requests>=2.28.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "twilio>=8.0.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+all = [
+    "vcon-twilio-adapter[dev]",
+]
+
+[project.scripts]
+vcon-twilio-adapter = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/vcon-dev/vcon-twilio-adapter"
+Repository = "https://github.com/vcon-dev/vcon-twilio-adapter"
+Issues = "https://github.com/vcon-dev/vcon-twilio-adapter/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["twilio_adapter*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=twilio_adapter --cov-report=term-missing"
+asyncio_mode = "auto"
