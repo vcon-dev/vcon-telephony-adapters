@@ -87,7 +87,7 @@ def create_app(config: Config) -> FastAPI:
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
-        return {"status": "healthy", "service": "vcon-twilio-adapter"}
+        return {"status": "healthy", "service": "vcon-telephony-adapters-twilio"}
 
     @app.post("/webhook/recording", response_class=PlainTextResponse)
     async def recording_status_callback(

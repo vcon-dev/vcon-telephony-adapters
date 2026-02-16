@@ -41,7 +41,7 @@ class TestHealthEndpoint:
         response = test_client.get("/health")
         data = response.json()
 
-        assert data["service"] == "vcon-twilio-adapter"
+        assert data["service"] == "vcon-telephony-adapters-twilio"
 
     def test_health_check_is_json(self, test_client):
         """Health check returns JSON content type."""
