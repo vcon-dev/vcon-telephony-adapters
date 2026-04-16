@@ -1,0 +1,1345 @@
+{
+  "schema_version": "1.0.0",
+  "repo": "vcon-telephony-adapters",
+  "repo_version": "0.2.0",
+  "archetype": "python-library",
+  "generated_at": "2026-04-16T15:15:46.720806+00:00",
+  "stats": {
+    "node_count": 185,
+    "edge_count": 17
+  },
+  "nodes": [
+    {
+      "id": "dependency:python-dotenv",
+      "type": "dependency",
+      "name": "python-dotenv",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "dependency:requests",
+      "type": "dependency",
+      "name": "requests",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "dependency:fastapi",
+      "type": "dependency",
+      "name": "fastapi",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "dependency:uvicorn",
+      "type": "dependency",
+      "name": "uvicorn",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "dependency:twilio",
+      "type": "dependency",
+      "name": "twilio",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "dependency:python-multipart",
+      "type": "dependency",
+      "name": "python-multipart",
+      "file": "pyproject.toml"
+    },
+    {
+      "id": "class:BaseRecordingData",
+      "type": "class",
+      "name": "BaseRecordingData",
+      "file": "core/base_builder.py",
+      "line": 23
+    },
+    {
+      "id": "class:BaseVconBuilder",
+      "type": "class",
+      "name": "BaseVconBuilder",
+      "file": "core/base_builder.py",
+      "line": 84
+    },
+    {
+      "id": "class:BaseConfig",
+      "type": "class",
+      "name": "BaseConfig",
+      "file": "core/base_config.py",
+      "line": 8
+    },
+    {
+      "id": "class:HttpPoster",
+      "type": "class",
+      "name": "HttpPoster",
+      "file": "core/poster.py",
+      "line": 11
+    },
+    {
+      "id": "class:StateTracker",
+      "type": "class",
+      "name": "StateTracker",
+      "file": "core/tracker.py",
+      "line": 11
+    },
+    {
+      "id": "class:TestAsteriskRecordingData",
+      "type": "class",
+      "name": "TestAsteriskRecordingData",
+      "file": "tests/adapters/asterisk/test_builder.py",
+      "line": 11
+    },
+    {
+      "id": "class:TestAsteriskVconBuilder",
+      "type": "class",
+      "name": "TestAsteriskVconBuilder",
+      "file": "tests/adapters/asterisk/test_builder.py",
+      "line": 130
+    },
+    {
+      "id": "class:TestAsteriskConfig",
+      "type": "class",
+      "name": "TestAsteriskConfig",
+      "file": "tests/adapters/asterisk/test_config.py",
+      "line": 8
+    },
+    {
+      "id": "class:TestAsteriskWebhook",
+      "type": "class",
+      "name": "TestAsteriskWebhook",
+      "file": "tests/adapters/asterisk/test_webhook.py",
+      "line": 12
+    },
+    {
+      "id": "class:TestBandwidthRecordingData",
+      "type": "class",
+      "name": "TestBandwidthRecordingData",
+      "file": "tests/adapters/bandwidth/test_builder.py",
+      "line": 10
+    },
+    {
+      "id": "class:TestBandwidthVconBuilder",
+      "type": "class",
+      "name": "TestBandwidthVconBuilder",
+      "file": "tests/adapters/bandwidth/test_builder.py",
+      "line": 122
+    },
+    {
+      "id": "class:TestBandwidthConfig",
+      "type": "class",
+      "name": "TestBandwidthConfig",
+      "file": "tests/adapters/bandwidth/test_config.py",
+      "line": 8
+    },
+    {
+      "id": "class:TestBandwidthWebhook",
+      "type": "class",
+      "name": "TestBandwidthWebhook",
+      "file": "tests/adapters/bandwidth/test_webhook.py",
+      "line": 13
+    },
+    {
+      "id": "class:TestBandwidthWebhookValidation",
+      "type": "class",
+      "name": "TestBandwidthWebhookValidation",
+      "file": "tests/adapters/bandwidth/test_webhook.py",
+      "line": 171
+    },
+    {
+      "id": "class:TestFreeSwitchRecordingData",
+      "type": "class",
+      "name": "TestFreeSwitchRecordingData",
+      "file": "tests/adapters/freeswitch/test_builder.py",
+      "line": 11
+    },
+    {
+      "id": "class:TestFreeSwitchVconBuilder",
+      "type": "class",
+      "name": "TestFreeSwitchVconBuilder",
+      "file": "tests/adapters/freeswitch/test_builder.py",
+      "line": 118
+    },
+    {
+      "id": "class:TestFreeSwitchConfig",
+      "type": "class",
+      "name": "TestFreeSwitchConfig",
+      "file": "tests/adapters/freeswitch/test_config.py",
+      "line": 8
+    },
+    {
+      "id": "class:TestFreeSwitchWebhook",
+      "type": "class",
+      "name": "TestFreeSwitchWebhook",
+      "file": "tests/adapters/freeswitch/test_webhook.py",
+      "line": 15
+    },
+    {
+      "id": "class:TestFreeSwitchWebhookValidation",
+      "type": "class",
+      "name": "TestFreeSwitchWebhookValidation",
+      "file": "tests/adapters/freeswitch/test_webhook.py",
+      "line": 158
+    },
+    {
+      "id": "class:TestTelnyxRecordingData",
+      "type": "class",
+      "name": "TestTelnyxRecordingData",
+      "file": "tests/adapters/telnyx/test_builder.py",
+      "line": 10
+    },
+    {
+      "id": "class:TestTelnyxVconBuilder",
+      "type": "class",
+      "name": "TestTelnyxVconBuilder",
+      "file": "tests/adapters/telnyx/test_builder.py",
+      "line": 148
+    },
+    {
+      "id": "class:TestTelnyxConfig",
+      "type": "class",
+      "name": "TestTelnyxConfig",
+      "file": "tests/adapters/telnyx/test_config.py",
+      "line": 8
+    },
+    {
+      "id": "class:TestTelnyxWebhook",
+      "type": "class",
+      "name": "TestTelnyxWebhook",
+      "file": "tests/adapters/telnyx/test_webhook.py",
+      "line": 12
+    },
+    {
+      "id": "class:TestTelnyxWebhookValidation",
+      "type": "class",
+      "name": "TestTelnyxWebhookValidation",
+      "file": "tests/adapters/telnyx/test_webhook.py",
+      "line": 165
+    },
+    {
+      "id": "function:clean_env",
+      "type": "function",
+      "name": "clean_env",
+      "file": "tests/conftest.py",
+      "line": 31
+    },
+    {
+      "id": "function:minimal_env",
+      "type": "function",
+      "name": "minimal_env",
+      "file": "tests/conftest.py",
+      "line": 55
+    },
+    {
+      "id": "function:full_env",
+      "type": "function",
+      "name": "full_env",
+      "file": "tests/conftest.py",
+      "line": 63
+    },
+    {
+      "id": "function:minimal_config",
+      "type": "function",
+      "name": "minimal_config",
+      "file": "tests/conftest.py",
+      "line": 87
+    },
+    {
+      "id": "function:full_config",
+      "type": "function",
+      "name": "full_config",
+      "file": "tests/conftest.py",
+      "line": 93
+    },
+    {
+      "id": "function:basic_webhook_data",
+      "type": "function",
+      "name": "basic_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 104
+    },
+    {
+      "id": "function:full_webhook_data",
+      "type": "function",
+      "name": "full_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 125
+    },
+    {
+      "id": "function:outbound_webhook_data",
+      "type": "function",
+      "name": "outbound_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 145
+    },
+    {
+      "id": "function:minimal_webhook_data",
+      "type": "function",
+      "name": "minimal_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 154
+    },
+    {
+      "id": "function:in_progress_webhook_data",
+      "type": "function",
+      "name": "in_progress_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 165
+    },
+    {
+      "id": "function:failed_webhook_data",
+      "type": "function",
+      "name": "failed_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 174
+    },
+    {
+      "id": "function:absent_webhook_data",
+      "type": "function",
+      "name": "absent_webhook_data",
+      "file": "tests/conftest.py",
+      "line": 183
+    },
+    {
+      "id": "function:basic_recording_data",
+      "type": "function",
+      "name": "basic_recording_data",
+      "file": "tests/conftest.py",
+      "line": 197
+    },
+    {
+      "id": "function:full_recording_data",
+      "type": "function",
+      "name": "full_recording_data",
+      "file": "tests/conftest.py",
+      "line": 203
+    },
+    {
+      "id": "function:builder_no_download",
+      "type": "function",
+      "name": "builder_no_download",
+      "file": "tests/conftest.py",
+      "line": 214
+    },
+    {
+      "id": "function:builder_mp3",
+      "type": "function",
+      "name": "builder_mp3",
+      "file": "tests/conftest.py",
+      "line": 220
+    },
+    {
+      "id": "function:builder_with_auth",
+      "type": "function",
+      "name": "builder_with_auth",
+      "file": "tests/conftest.py",
+      "line": 226
+    },
+    {
+      "id": "function:basic_poster",
+      "type": "function",
+      "name": "basic_poster",
+      "file": "tests/conftest.py",
+      "line": 239
+    },
+    {
+      "id": "function:poster_with_auth",
+      "type": "function",
+      "name": "poster_with_auth",
+      "file": "tests/conftest.py",
+      "line": 245
+    },
+    {
+      "id": "function:poster_with_ingress",
+      "type": "function",
+      "name": "poster_with_ingress",
+      "file": "tests/conftest.py",
+      "line": 254
+    },
+    {
+      "id": "function:temp_state_file",
+      "type": "function",
+      "name": "temp_state_file",
+      "file": "tests/conftest.py",
+      "line": 269
+    },
+    {
+      "id": "function:tracker",
+      "type": "function",
+      "name": "tracker",
+      "file": "tests/conftest.py",
+      "line": 279
+    },
+    {
+      "id": "function:preloaded_tracker",
+      "type": "function",
+      "name": "preloaded_tracker",
+      "file": "tests/conftest.py",
+      "line": 285
+    },
+    {
+      "id": "function:mock_config",
+      "type": "function",
+      "name": "mock_config",
+      "file": "tests/conftest.py",
+      "line": 300
+    },
+    {
+      "id": "function:test_client",
+      "type": "function",
+      "name": "test_client",
+      "file": "tests/conftest.py",
+      "line": 307
+    },
+    {
+      "id": "function:mock_poster",
+      "type": "function",
+      "name": "mock_poster",
+      "file": "tests/conftest.py",
+      "line": 314
+    },
+    {
+      "id": "function:mock_failing_poster",
+      "type": "function",
+      "name": "mock_failing_poster",
+      "file": "tests/conftest.py",
+      "line": 322
+    },
+    {
+      "id": "function:sample_audio_bytes",
+      "type": "function",
+      "name": "sample_audio_bytes",
+      "file": "tests/conftest.py",
+      "line": 335
+    },
+    {
+      "id": "function:create_mock_response",
+      "type": "function",
+      "name": "create_mock_response",
+      "file": "tests/conftest.py",
+      "line": 360
+    },
+    {
+      "id": "class:TestTwilioRecordingDataBasicParsing",
+      "type": "class",
+      "name": "TestTwilioRecordingDataBasicParsing",
+      "file": "tests/test_builder.py",
+      "line": 20
+    },
+    {
+      "id": "class:TestTwilioRecordingDataEmptyValues",
+      "type": "class",
+      "name": "TestTwilioRecordingDataEmptyValues",
+      "file": "tests/test_builder.py",
+      "line": 64
+    },
+    {
+      "id": "class:TestTwilioRecordingDataCallerCalled",
+      "type": "class",
+      "name": "TestTwilioRecordingDataCallerCalled",
+      "file": "tests/test_builder.py",
+      "line": 95
+    },
+    {
+      "id": "class:TestTwilioRecordingDataGeographic",
+      "type": "class",
+      "name": "TestTwilioRecordingDataGeographic",
+      "file": "tests/test_builder.py",
+      "line": 142
+    },
+    {
+      "id": "class:TestTwilioRecordingDataDuration",
+      "type": "class",
+      "name": "TestTwilioRecordingDataDuration",
+      "file": "tests/test_builder.py",
+      "line": 173
+    },
+    {
+      "id": "class:TestTwilioRecordingDataStartTime",
+      "type": "class",
+      "name": "TestTwilioRecordingDataStartTime",
+      "file": "tests/test_builder.py",
+      "line": 217
+    },
+    {
+      "id": "class:TestVconBuilderInit",
+      "type": "class",
+      "name": "TestVconBuilderInit",
+      "file": "tests/test_builder.py",
+      "line": 274
+    },
+    {
+      "id": "class:TestVconBuilderBuildBasic",
+      "type": "class",
+      "name": "TestVconBuilderBuildBasic",
+      "file": "tests/test_builder.py",
+      "line": 296
+    },
+    {
+      "id": "class:TestVconBuilderDialogContent",
+      "type": "class",
+      "name": "TestVconBuilderDialogContent",
+      "file": "tests/test_builder.py",
+      "line": 329
+    },
+    {
+      "id": "class:TestVconBuilderOriginator",
+      "type": "class",
+      "name": "TestVconBuilderOriginator",
+      "file": "tests/test_builder.py",
+      "line": 372
+    },
+    {
+      "id": "class:TestVconBuilderUrlReference",
+      "type": "class",
+      "name": "TestVconBuilderUrlReference",
+      "file": "tests/test_builder.py",
+      "line": 432
+    },
+    {
+      "id": "class:TestVconBuilderDownload",
+      "type": "class",
+      "name": "TestVconBuilderDownload",
+      "file": "tests/test_builder.py",
+      "line": 478
+    },
+    {
+      "id": "class:TestVconBuilderTags",
+      "type": "class",
+      "name": "TestVconBuilderTags",
+      "file": "tests/test_builder.py",
+      "line": 612
+    },
+    {
+      "id": "class:TestMimeTypes",
+      "type": "class",
+      "name": "TestMimeTypes",
+      "file": "tests/test_builder.py",
+      "line": 678
+    },
+    {
+      "id": "class:TestVconBuilderEdgeCases",
+      "type": "class",
+      "name": "TestVconBuilderEdgeCases",
+      "file": "tests/test_builder.py",
+      "line": 705
+    },
+    {
+      "id": "class:TestConfigRequired",
+      "type": "class",
+      "name": "TestConfigRequired",
+      "file": "tests/test_config.py",
+      "line": 11
+    },
+    {
+      "id": "class:TestConfigDefaults",
+      "type": "class",
+      "name": "TestConfigDefaults",
+      "file": "tests/test_config.py",
+      "line": 43
+    },
+    {
+      "id": "class:TestConfigCustomValues",
+      "type": "class",
+      "name": "TestConfigCustomValues",
+      "file": "tests/test_config.py",
+      "line": 91
+    },
+    {
+      "id": "class:TestConfigRecordingFormat",
+      "type": "class",
+      "name": "TestConfigRecordingFormat",
+      "file": "tests/test_config.py",
+      "line": 138
+    },
+    {
+      "id": "class:TestConfigBooleanParsing",
+      "type": "class",
+      "name": "TestConfigBooleanParsing",
+      "file": "tests/test_config.py",
+      "line": 176
+    },
+    {
+      "id": "class:TestConfigIngressLists",
+      "type": "class",
+      "name": "TestConfigIngressLists",
+      "file": "tests/test_config.py",
+      "line": 209
+    },
+    {
+      "id": "class:TestConfigGetHeaders",
+      "type": "class",
+      "name": "TestConfigGetHeaders",
+      "file": "tests/test_config.py",
+      "line": 243
+    },
+    {
+      "id": "class:TestConfigGetTwilioAuth",
+      "type": "class",
+      "name": "TestConfigGetTwilioAuth",
+      "file": "tests/test_config.py",
+      "line": 272
+    },
+    {
+      "id": "class:TestConfigFromEnvFile",
+      "type": "class",
+      "name": "TestConfigFromEnvFile",
+      "file": "tests/test_config.py",
+      "line": 307
+    },
+    {
+      "id": "class:TestConfigFullConfiguration",
+      "type": "class",
+      "name": "TestConfigFullConfiguration",
+      "file": "tests/test_config.py",
+      "line": 342
+    },
+    {
+      "id": "class:TestHttpPosterInit",
+      "type": "class",
+      "name": "TestHttpPosterInit",
+      "file": "tests/test_poster.py",
+      "line": 11
+    },
+    {
+      "id": "class:TestHttpPosterPost",
+      "type": "class",
+      "name": "TestHttpPosterPost",
+      "file": "tests/test_poster.py",
+      "line": 39
+    },
+    {
+      "id": "class:TestHttpPosterRequestFormat",
+      "type": "class",
+      "name": "TestHttpPosterRequestFormat",
+      "file": "tests/test_poster.py",
+      "line": 149
+    },
+    {
+      "id": "class:TestHttpPosterIngressLists",
+      "type": "class",
+      "name": "TestHttpPosterIngressLists",
+      "file": "tests/test_poster.py",
+      "line": 216
+    },
+    {
+      "id": "class:TestHttpPosterStatusCodes",
+      "type": "class",
+      "name": "TestHttpPosterStatusCodes",
+      "file": "tests/test_poster.py",
+      "line": 265
+    },
+    {
+      "id": "class:TestHttpPosterErrorHandling",
+      "type": "class",
+      "name": "TestHttpPosterErrorHandling",
+      "file": "tests/test_poster.py",
+      "line": 328
+    },
+    {
+      "id": "class:TestHttpPosterVconSerialization",
+      "type": "class",
+      "name": "TestHttpPosterVconSerialization",
+      "file": "tests/test_poster.py",
+      "line": 373
+    },
+    {
+      "id": "class:TestHttpPosterMultiplePosts",
+      "type": "class",
+      "name": "TestHttpPosterMultiplePosts",
+      "file": "tests/test_poster.py",
+      "line": 412
+    },
+    {
+      "id": "class:TestStateTrackerInit",
+      "type": "class",
+      "name": "TestStateTrackerInit",
+      "file": "tests/test_tracker.py",
+      "line": 12
+    },
+    {
+      "id": "class:TestStateTrackerIsProcessed",
+      "type": "class",
+      "name": "TestStateTrackerIsProcessed",
+      "file": "tests/test_tracker.py",
+      "line": 56
+    },
+    {
+      "id": "class:TestStateTrackerMarkProcessed",
+      "type": "class",
+      "name": "TestStateTrackerMarkProcessed",
+      "file": "tests/test_tracker.py",
+      "line": 82
+    },
+    {
+      "id": "class:TestStateTrackerGetVconUuid",
+      "type": "class",
+      "name": "TestStateTrackerGetVconUuid",
+      "file": "tests/test_tracker.py",
+      "line": 152
+    },
+    {
+      "id": "class:TestStateTrackerGetProcessingStatus",
+      "type": "class",
+      "name": "TestStateTrackerGetProcessingStatus",
+      "file": "tests/test_tracker.py",
+      "line": 176
+    },
+    {
+      "id": "class:TestStateTrackerPersistence",
+      "type": "class",
+      "name": "TestStateTrackerPersistence",
+      "file": "tests/test_tracker.py",
+      "line": 195
+    },
+    {
+      "id": "class:TestStateTrackerErrorHandling",
+      "type": "class",
+      "name": "TestStateTrackerErrorHandling",
+      "file": "tests/test_tracker.py",
+      "line": 240
+    },
+    {
+      "id": "class:TestStateTrackerConcurrency",
+      "type": "class",
+      "name": "TestStateTrackerConcurrency",
+      "file": "tests/test_tracker.py",
+      "line": 307
+    },
+    {
+      "id": "class:TestStateTrackerStateFileFormat",
+      "type": "class",
+      "name": "TestStateTrackerStateFileFormat",
+      "file": "tests/test_tracker.py",
+      "line": 327
+    },
+    {
+      "id": "class:TestStateTrackerEdgeCases",
+      "type": "class",
+      "name": "TestStateTrackerEdgeCases",
+      "file": "tests/test_tracker.py",
+      "line": 377
+    },
+    {
+      "id": "function:unique_recording_sid",
+      "type": "function",
+      "name": "unique_recording_sid",
+      "file": "tests/test_webhook.py",
+      "line": 12
+    },
+    {
+      "id": "class:TestHealthEndpoint",
+      "type": "class",
+      "name": "TestHealthEndpoint",
+      "file": "tests/test_webhook.py",
+      "line": 22
+    },
+    {
+      "id": "class:TestRecordingWebhookBasic",
+      "type": "class",
+      "name": "TestRecordingWebhookBasic",
+      "file": "tests/test_webhook.py",
+      "line": 56
+    },
+    {
+      "id": "class:TestRecordingWebhookStatusFiltering",
+      "type": "class",
+      "name": "TestRecordingWebhookStatusFiltering",
+      "file": "tests/test_webhook.py",
+      "line": 97
+    },
+    {
+      "id": "class:TestRecordingWebhookDuplicatePrevention",
+      "type": "class",
+      "name": "TestRecordingWebhookDuplicatePrevention",
+      "file": "tests/test_webhook.py",
+      "line": 175
+    },
+    {
+      "id": "class:TestRecordingWebhookFullProcessing",
+      "type": "class",
+      "name": "TestRecordingWebhookFullProcessing",
+      "file": "tests/test_webhook.py",
+      "line": 254
+    },
+    {
+      "id": "class:TestRecordingWebhookAllParameters",
+      "type": "class",
+      "name": "TestRecordingWebhookAllParameters",
+      "file": "tests/test_webhook.py",
+      "line": 352
+    },
+    {
+      "id": "class:TestStatusEndpoint",
+      "type": "class",
+      "name": "TestStatusEndpoint",
+      "file": "tests/test_webhook.py",
+      "line": 426
+    },
+    {
+      "id": "class:TestCreateApp",
+      "type": "class",
+      "name": "TestCreateApp",
+      "file": "tests/test_webhook.py",
+      "line": 531
+    },
+    {
+      "id": "class:TestTwilioSignatureValidation",
+      "type": "class",
+      "name": "TestTwilioSignatureValidation",
+      "file": "tests/test_webhook.py",
+      "line": 582
+    },
+    {
+      "id": "class:TestWebhookErrorHandling",
+      "type": "class",
+      "name": "TestWebhookErrorHandling",
+      "file": "tests/test_webhook.py",
+      "line": 625
+    },
+    {
+      "id": "class:TestWebhookIntegration",
+      "type": "class",
+      "name": "TestWebhookIntegration",
+      "file": "tests/test_webhook.py",
+      "line": 684
+    },
+    {
+      "id": "class:AsteriskRecordingData",
+      "type": "class",
+      "name": "AsteriskRecordingData",
+      "file": "adapters/asterisk/builder.py",
+      "line": 16
+    },
+    {
+      "id": "class:AsteriskVconBuilder",
+      "type": "class",
+      "name": "AsteriskVconBuilder",
+      "file": "adapters/asterisk/builder.py",
+      "line": 162
+    },
+    {
+      "id": "class:AsteriskConfig",
+      "type": "class",
+      "name": "AsteriskConfig",
+      "file": "adapters/asterisk/config.py",
+      "line": 8
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "adapters/asterisk/webhook.py",
+      "line": 19
+    },
+    {
+      "id": "class:BandwidthRecordingData",
+      "type": "class",
+      "name": "BandwidthRecordingData",
+      "file": "adapters/bandwidth/builder.py",
+      "line": 15
+    },
+    {
+      "id": "class:BandwidthVconBuilder",
+      "type": "class",
+      "name": "BandwidthVconBuilder",
+      "file": "adapters/bandwidth/builder.py",
+      "line": 160
+    },
+    {
+      "id": "class:BandwidthConfig",
+      "type": "class",
+      "name": "BandwidthConfig",
+      "file": "adapters/bandwidth/config.py",
+      "line": 8
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "adapters/bandwidth/webhook.py",
+      "line": 19
+    },
+    {
+      "id": "class:FreeSwitchRecordingData",
+      "type": "class",
+      "name": "FreeSwitchRecordingData",
+      "file": "adapters/freeswitch/builder.py",
+      "line": 15
+    },
+    {
+      "id": "class:FreeSwitchVconBuilder",
+      "type": "class",
+      "name": "FreeSwitchVconBuilder",
+      "file": "adapters/freeswitch/builder.py",
+      "line": 134
+    },
+    {
+      "id": "class:FreeSwitchConfig",
+      "type": "class",
+      "name": "FreeSwitchConfig",
+      "file": "adapters/freeswitch/config.py",
+      "line": 8
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "adapters/freeswitch/webhook.py",
+      "line": 19
+    },
+    {
+      "id": "class:TelnyxRecordingData",
+      "type": "class",
+      "name": "TelnyxRecordingData",
+      "file": "adapters/telnyx/builder.py",
+      "line": 14
+    },
+    {
+      "id": "class:TelnyxVconBuilder",
+      "type": "class",
+      "name": "TelnyxVconBuilder",
+      "file": "adapters/telnyx/builder.py",
+      "line": 161
+    },
+    {
+      "id": "class:TelnyxConfig",
+      "type": "class",
+      "name": "TelnyxConfig",
+      "file": "adapters/telnyx/config.py",
+      "line": 8
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "adapters/telnyx/webhook.py",
+      "line": 18
+    },
+    {
+      "id": "class:TwilioRecordingData",
+      "type": "class",
+      "name": "TwilioRecordingData",
+      "file": "adapters/twilio/builder.py",
+      "line": 14
+    },
+    {
+      "id": "class:TwilioVconBuilder",
+      "type": "class",
+      "name": "TwilioVconBuilder",
+      "file": "adapters/twilio/builder.py",
+      "line": 146
+    },
+    {
+      "id": "class:TwilioConfig",
+      "type": "class",
+      "name": "TwilioConfig",
+      "file": "adapters/twilio/config.py",
+      "line": 8
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "adapters/twilio/webhook.py",
+      "line": 18
+    },
+    {
+      "id": "class:TwilioRecordingData",
+      "type": "class",
+      "name": "TwilioRecordingData",
+      "file": "twilio_adapter/builder.py",
+      "line": 23
+    },
+    {
+      "id": "class:VconBuilder",
+      "type": "class",
+      "name": "VconBuilder",
+      "file": "twilio_adapter/builder.py",
+      "line": 94
+    },
+    {
+      "id": "class:Config",
+      "type": "class",
+      "name": "Config",
+      "file": "twilio_adapter/config.py",
+      "line": 8
+    },
+    {
+      "id": "class:HttpPoster",
+      "type": "class",
+      "name": "HttpPoster",
+      "file": "twilio_adapter/poster.py",
+      "line": 11
+    },
+    {
+      "id": "class:StateTracker",
+      "type": "class",
+      "name": "StateTracker",
+      "file": "twilio_adapter/tracker.py",
+      "line": 11
+    },
+    {
+      "id": "function:create_app",
+      "type": "function",
+      "name": "create_app",
+      "file": "twilio_adapter/webhook.py",
+      "line": 17
+    },
+    {
+      "id": "config:ASTERISK_ARI_PASSWORD",
+      "type": "config",
+      "name": "ASTERISK_ARI_PASSWORD",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_ARI_PORT",
+      "type": "config",
+      "name": "ASTERISK_ARI_PORT",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_ARI_SCHEME",
+      "type": "config",
+      "name": "ASTERISK_ARI_SCHEME",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_ARI_URL",
+      "type": "config",
+      "name": "ASTERISK_ARI_URL",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_ARI_USERNAME",
+      "type": "config",
+      "name": "ASTERISK_ARI_USERNAME",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_HOST",
+      "type": "config",
+      "name": "ASTERISK_HOST",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_RECORDINGS_PATH",
+      "type": "config",
+      "name": "ASTERISK_RECORDINGS_PATH",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:ASTERISK_WEBHOOK_SECRET",
+      "type": "config",
+      "name": "ASTERISK_WEBHOOK_SECRET",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_ACCOUNT_ID",
+      "type": "config",
+      "name": "BANDWIDTH_ACCOUNT_ID",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_APPLICATION_ID",
+      "type": "config",
+      "name": "BANDWIDTH_APPLICATION_ID",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_PASSWORD",
+      "type": "config",
+      "name": "BANDWIDTH_PASSWORD",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_USERNAME",
+      "type": "config",
+      "name": "BANDWIDTH_USERNAME",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_VOICE_API_URL",
+      "type": "config",
+      "name": "BANDWIDTH_VOICE_API_URL",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_WEBHOOK_PASSWORD",
+      "type": "config",
+      "name": "BANDWIDTH_WEBHOOK_PASSWORD",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:BANDWIDTH_WEBHOOK_USERNAME",
+      "type": "config",
+      "name": "BANDWIDTH_WEBHOOK_USERNAME",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:CONSERVER_API_TOKEN",
+      "type": "config",
+      "name": "CONSERVER_API_TOKEN",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:CONSERVER_HEADER_NAME",
+      "type": "config",
+      "name": "CONSERVER_HEADER_NAME",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:CONSERVER_URL",
+      "type": "config",
+      "name": "CONSERVER_URL",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:DOWNLOAD_RECORDINGS",
+      "type": "config",
+      "name": "DOWNLOAD_RECORDINGS",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:FREESWITCH_ESL_PASSWORD",
+      "type": "config",
+      "name": "FREESWITCH_ESL_PASSWORD",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:FREESWITCH_ESL_PORT",
+      "type": "config",
+      "name": "FREESWITCH_ESL_PORT",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:FREESWITCH_HOST",
+      "type": "config",
+      "name": "FREESWITCH_HOST",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:FREESWITCH_RECORDINGS_PATH",
+      "type": "config",
+      "name": "FREESWITCH_RECORDINGS_PATH",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:FREESWITCH_RECORDINGS_URL_BASE",
+      "type": "config",
+      "name": "FREESWITCH_RECORDINGS_URL_BASE",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:FREESWITCH_WEBHOOK_SECRET",
+      "type": "config",
+      "name": "FREESWITCH_WEBHOOK_SECRET",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:HOST",
+      "type": "config",
+      "name": "HOST",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:INGRESS_LISTS",
+      "type": "config",
+      "name": "INGRESS_LISTS",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:LOG_LEVEL",
+      "type": "config",
+      "name": "LOG_LEVEL",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:PORT",
+      "type": "config",
+      "name": "PORT",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:RECORDING_FORMAT",
+      "type": "config",
+      "name": "RECORDING_FORMAT",
+      "file": "core/base_config.py"
+    },
+    {
+      "id": "config:STATE_FILE",
+      "type": "config",
+      "name": "STATE_FILE",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:TELNYX_API_KEY",
+      "type": "config",
+      "name": "TELNYX_API_KEY",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:TELNYX_API_SECRET",
+      "type": "config",
+      "name": "TELNYX_API_SECRET",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:TELNYX_API_URL",
+      "type": "config",
+      "name": "TELNYX_API_URL",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:TELNYX_PUBLIC_KEY",
+      "type": "config",
+      "name": "TELNYX_PUBLIC_KEY",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:TELNYX_WEBHOOK_URL",
+      "type": "config",
+      "name": "TELNYX_WEBHOOK_URL",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:TWILIO_ACCOUNT_SID",
+      "type": "config",
+      "name": "TWILIO_ACCOUNT_SID",
+      "file": "adapters/twilio/config.py"
+    },
+    {
+      "id": "config:TWILIO_AUTH_TOKEN",
+      "type": "config",
+      "name": "TWILIO_AUTH_TOKEN",
+      "file": "adapters/twilio/config.py"
+    },
+    {
+      "id": "config:VALIDATE_ASTERISK_WEBHOOK",
+      "type": "config",
+      "name": "VALIDATE_ASTERISK_WEBHOOK",
+      "file": "adapters/asterisk/config.py"
+    },
+    {
+      "id": "config:VALIDATE_BANDWIDTH_WEBHOOK",
+      "type": "config",
+      "name": "VALIDATE_BANDWIDTH_WEBHOOK",
+      "file": "adapters/bandwidth/config.py"
+    },
+    {
+      "id": "config:VALIDATE_FREESWITCH_WEBHOOK",
+      "type": "config",
+      "name": "VALIDATE_FREESWITCH_WEBHOOK",
+      "file": "adapters/freeswitch/config.py"
+    },
+    {
+      "id": "config:VALIDATE_TELNYX_WEBHOOK",
+      "type": "config",
+      "name": "VALIDATE_TELNYX_WEBHOOK",
+      "file": "adapters/telnyx/config.py"
+    },
+    {
+      "id": "config:VALIDATE_TWILIO_SIGNATURE",
+      "type": "config",
+      "name": "VALIDATE_TWILIO_SIGNATURE",
+      "file": "adapters/twilio/config.py"
+    },
+    {
+      "id": "config:WEBHOOK_URL",
+      "type": "config",
+      "name": "WEBHOOK_URL",
+      "file": "adapters/twilio/config.py"
+    },
+    {
+      "id": "document:readme-md",
+      "type": "document",
+      "name": "README.md",
+      "file": "README.md"
+    }
+  ],
+  "edges": [
+    {
+      "from": "class:BaseRecordingData",
+      "to": "class:ABC",
+      "type": "inherits"
+    },
+    {
+      "from": "class:BaseVconBuilder",
+      "to": "class:ABC",
+      "type": "inherits"
+    },
+    {
+      "from": "class:AsteriskRecordingData",
+      "to": "class:BaseRecordingData",
+      "type": "inherits"
+    },
+    {
+      "from": "class:AsteriskVconBuilder",
+      "to": "class:BaseVconBuilder",
+      "type": "inherits"
+    },
+    {
+      "from": "class:AsteriskConfig",
+      "to": "class:BaseConfig",
+      "type": "inherits"
+    },
+    {
+      "from": "class:BandwidthRecordingData",
+      "to": "class:BaseRecordingData",
+      "type": "inherits"
+    },
+    {
+      "from": "class:BandwidthVconBuilder",
+      "to": "class:BaseVconBuilder",
+      "type": "inherits"
+    },
+    {
+      "from": "class:BandwidthConfig",
+      "to": "class:BaseConfig",
+      "type": "inherits"
+    },
+    {
+      "from": "class:FreeSwitchRecordingData",
+      "to": "class:BaseRecordingData",
+      "type": "inherits"
+    },
+    {
+      "from": "class:FreeSwitchVconBuilder",
+      "to": "class:BaseVconBuilder",
+      "type": "inherits"
+    },
+    {
+      "from": "class:FreeSwitchConfig",
+      "to": "class:BaseConfig",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TelnyxRecordingData",
+      "to": "class:BaseRecordingData",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TelnyxVconBuilder",
+      "to": "class:BaseVconBuilder",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TelnyxConfig",
+      "to": "class:BaseConfig",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TwilioRecordingData",
+      "to": "class:BaseRecordingData",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TwilioVconBuilder",
+      "to": "class:BaseVconBuilder",
+      "type": "inherits"
+    },
+    {
+      "from": "class:TwilioConfig",
+      "to": "class:BaseConfig",
+      "type": "inherits"
+    }
+  ],
+  "subsystems": []
+}
