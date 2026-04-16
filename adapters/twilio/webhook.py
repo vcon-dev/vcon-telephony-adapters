@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from twilio.request_validator import RequestValidator
 
 from core.poster import HttpPoster
@@ -84,6 +84,29 @@ def create_app(config: TwilioConfig) -> FastAPI:
     async def health_check():
         """Health check endpoint."""
         return {"status": "healthy", "service": "vcon-telephony-adapters-twilio"}
+
+    @app.get("/webhook/demo")
+    @app.post("/webhook/demo")
+    async def demo_twiml(request: Request):
+        """Return TwiML to answer the call, record a message, and send recording webhooks.
+
+        Configure your Twilio number's 'A CALL COMES IN' to this URL (GET or POST).
+        The recording status callback is sent to /webhook/recording.
+        """
+        recording_callback = config.webhook_url or str(request.base_url).rstrip("/") + "/webhook/recording"
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Please leave a message after the beep.</Say>
+  <Record
+    recordingStatusCallback="{recording_callback}"
+    recordingStatusCallbackMethod="POST"
+    recordingStatusCallbackEvent="completed"
+    maxLength="120"
+    playBeep="true"
+  />
+  <Say>Goodbye.</Say>
+</Response>"""
+        return Response(content=twiml, media_type="application/xml")
 
     @app.post("/webhook/recording", response_class=PlainTextResponse)
     async def recording_status_callback(
