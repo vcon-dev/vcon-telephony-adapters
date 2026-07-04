@@ -45,6 +45,16 @@ def clean_env(monkeypatch):
         "RECORDING_FORMAT",
         "STATE_FILE",
         "INGRESS_LISTS",
+        "TWILIO_ENABLE_VOICE_RECORDING",
+        "TWILIO_ENABLE_VOICE_STATUS",
+        "TWILIO_ENABLE_MESSAGING",
+        "TWILIO_ENABLE_FAX",
+        "TWILIO_ENABLE_VIDEO",
+        "TWILIO_ENABLE_CONVERSATIONS",
+        "DOWNLOAD_MESSAGING_MEDIA",
+        "DOWNLOAD_FAX",
+        "DOWNLOAD_VIDEO",
+        "MESSAGING_SESSION_WINDOW_HOURS",
     ]
     for var in env_vars:
         monkeypatch.delenv(var, raising=False)

@@ -1,0 +1,8 @@
+{
+  "StatusCallbackEvent": "composition-available",
+  "AccountSid": "ACtest1234567890abcdef12345678",
+  "RoomSid": "RMtest1234567890abcdef12345678",
+  "RoomName": "DailyStandup",
+  "CompositionSid": "CJtest1234567890abcdef12345678",
+  "MediaUri": "https://compositions.twilio.com/v1/Compositions/CJtest/Media"
+}

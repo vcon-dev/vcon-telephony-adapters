@@ -358,15 +358,15 @@ class TestVconBuilderDialogContent:
         # Duration should be None or not in dialog dict
         assert vcon.dialog[0].get("duration") is None
 
-    def test_dialog_mimetype_wav(self, builder_no_download, basic_recording_data):
-        """Dialog MIME type for WAV format."""
+    def test_dialog_mediatype_wav(self, builder_no_download, basic_recording_data):
+        """Dialog media type for WAV format (spec field is `mediatype`)."""
         vcon = builder_no_download.build(basic_recording_data)
-        assert vcon.dialog[0]["mimetype"] == "audio/wav"
+        assert vcon.dialog[0]["mediatype"] == "audio/wav"
 
-    def test_dialog_mimetype_mp3(self, builder_mp3, basic_recording_data):
-        """Dialog MIME type for MP3 format."""
+    def test_dialog_mediatype_mp3(self, builder_mp3, basic_recording_data):
+        """Dialog media type for MP3 format (spec field is `mediatype`)."""
         vcon = builder_mp3.build(basic_recording_data)
-        assert vcon.dialog[0]["mimetype"] == "audio/mpeg"
+        assert vcon.dialog[0]["mediatype"] == "audio/mpeg"
 
 
 class TestVconBuilderOriginator:
@@ -489,7 +489,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = sample_audio_bytes
@@ -498,9 +498,12 @@ class TestVconBuilderDownload:
             vcon = builder_with_auth.build(data)
 
             dialog = vcon.dialog[0]
-            assert dialog["body"] == base64.b64encode(sample_audio_bytes).decode("utf-8")
-            assert dialog["encoding"] == "base64"
+            # Spec: encoding is base64url (RFC 4648 URL-safe, no padding); content_hash required
+            expected_body = base64.urlsafe_b64encode(sample_audio_bytes).rstrip(b"=").decode("ascii")
+            assert dialog["body"] == expected_body
+            assert dialog["encoding"] == "base64url"
             assert dialog["filename"] == "RE123.wav"
+            assert dialog["content_hash"].startswith("sha512-")
 
     def test_download_failure_falls_back_to_url(self, builder_with_auth):
         """Download failure falls back to URL reference."""
@@ -513,7 +516,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 404
             mock_get.return_value = mock_response
@@ -533,7 +536,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_get.side_effect = Exception("Connection error")
 
             vcon = builder_with_auth.build(data)
@@ -551,7 +554,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
@@ -574,7 +577,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
@@ -597,7 +600,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.voice_recording.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
@@ -699,7 +702,7 @@ class TestMimeTypes:
         vcon = builder.build(data)
 
         # Should fall back to wav
-        assert vcon.dialog[0]["mimetype"] == "audio/wav"
+        assert vcon.dialog[0]["mediatype"] == "audio/wav"
 
 
 class TestVconBuilderEdgeCases:

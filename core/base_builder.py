@@ -1,6 +1,7 @@
 """Base vCon builder with common functionality for all telephony adapters."""
 
 import base64
+import hashlib
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -11,6 +12,23 @@ from vcon.dialog import Dialog
 from vcon.party import Party
 
 logger = logging.getLogger(__name__)
+
+
+def _base64url_encode(data: bytes) -> str:
+    """Encode bytes as RFC 4648 base64url (URL-safe alphabet, no padding)."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _sha512_content_hash(data: bytes) -> str:
+    """Return spec-compliant content_hash: `sha512-<base64url of digest>`."""
+    return "sha512-" + _base64url_encode(hashlib.sha512(data).digest())
+
+
+def _strip_empty_dict_placeholders(d: dict, keys: tuple = ("meta", "metadata")) -> None:
+    """Drop keys whose value is an empty dict (vcon-lib Dialog.to_dict emits these unset)."""
+    for k in keys:
+        if k in d and d[k] == {}:
+            del d[k]
 
 
 # MIME type mapping for recording formats
@@ -156,43 +174,58 @@ class BaseVconBuilder(ABC):
             # Determine who initiated based on direction
             originator = self._determine_originator(recording_data.direction)
 
-            # Build dialog
+            # Build dialog. Spec field name is `mediatype` (NOT `mimetype`); the lib's
+            # Dialog.__init__ takes `**kwargs` so the wrong name slides through silently.
             mime_type = MIME_TYPES.get(self.recording_format, "audio/wav")
             dialog_kwargs: dict[str, Any] = {
                 "type": "recording",
                 "start": start_time,
                 "parties": [0, 1],
                 "originator": originator,
-                "mimetype": mime_type,
+                "mediatype": mime_type,
             }
 
             # Add duration if available
             if recording_data.duration_seconds is not None:
                 dialog_kwargs["duration"] = recording_data.duration_seconds
 
-            # Download and embed recording if configured
+            # Download and embed recording if configured. Spec encoding is `base64url`
+            # (RFC 4648 URL-safe alphabet, no padding) — NOT plain `base64`.
+            # Spec also requires `content_hash` whenever external media is referenced by URL.
             if self.download_recordings and recording_data.recording_url:
                 audio_data = self._download_recording(recording_data)
                 if audio_data:
-                    audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-                    dialog_kwargs["body"] = audio_base64
-                    dialog_kwargs["encoding"] = "base64"
+                    dialog_kwargs["body"] = _base64url_encode(audio_data)
+                    dialog_kwargs["encoding"] = "base64url"
+                    dialog_kwargs["content_hash"] = _sha512_content_hash(audio_data)
                     dialog_kwargs["filename"] = (
                         f"{recording_data.recording_id}.{self.recording_format}"
                     )
                 else:
-                    # Fall back to URL reference if download fails
+                    # Fall back to URL reference if download fails. We have no audio
+                    # bytes to hash, so the resulting dialog is not fully spec-compliant
+                    # for external media (which requires url + content_hash).
                     logger.warning(
-                        f"Download failed, using URL reference for {recording_data.recording_id}"
+                        f"Download failed, emitting URL without content_hash for "
+                        f"{recording_data.recording_id} — output is not spec-compliant "
+                        f"for external media (spec requires url + content_hash)."
                     )
                     dialog_kwargs["url"] = f"{recording_data.recording_url}.{self.recording_format}"
             elif recording_data.recording_url:
-                # Use URL reference without downloading
+                # URL-only mode (download_recordings=False) — same caveat as above.
+                logger.warning(
+                    "URL-only mode emits external media without content_hash; "
+                    "output is not spec-compliant for external media."
+                )
                 dialog_kwargs["url"] = f"{recording_data.recording_url}.{self.recording_format}"
 
             # Create dialog
             dialog = Dialog(**dialog_kwargs)
             vcon.add_dialog(dialog)
+
+            # vcon-lib Dialog.to_dict() emits empty `metadata: {}` and `meta: {}`
+            # placeholders even when unset. Spec discourages empty placeholders.
+            _strip_empty_dict_placeholders(vcon.vcon_dict["dialog"][-1])
 
             # Add source tag
             vcon.add_tag("source", self.ADAPTER_SOURCE)

@@ -1,6 +1,10 @@
-"""FastAPI webhook receiver for Twilio recording status callbacks."""
+"""FastAPI webhook receiver for Twilio (voice, messaging, fax, video, conversations)."""
 
+from __future__ import annotations
+
+import json
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
@@ -9,91 +13,121 @@ from twilio.request_validator import RequestValidator
 from core.poster import HttpPoster
 from core.tracker import StateTracker
 
-from .builder import TwilioRecordingData, TwilioVconBuilder
+from .builder import (
+    TwilioConversationsBuilder,
+    TwilioFaxBuilder,
+    TwilioMessagingBuilder,
+    TwilioRecordingData,
+    TwilioVconBuilder,
+    TwilioVideoBuilder,
+    TwilioVoiceStatusBuilder,
+)
 from .config import TwilioConfig
+from .session import SessionAggregator
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(config: TwilioConfig) -> FastAPI:
-    """Create and configure the FastAPI application.
-
-    Args:
-        config: Application configuration
-
-    Returns:
-        Configured FastAPI application
-    """
+    """Create and configure the FastAPI application."""
     app = FastAPI(
         title="vCon Twilio Adapter",
-        description="Receives Twilio recording webhooks and creates vCons",
-        version="0.1.0",
+        description="Receives Twilio webhooks and creates vCons for all communication modes",
+        version="0.2.0",
     )
 
-    # Initialize components
-    builder = TwilioVconBuilder(
+    auth = config.get_twilio_auth()
+    recording_builder = TwilioVconBuilder(
         download_recordings=config.download_recordings,
         recording_format=config.recording_format,
-        twilio_auth=config.get_twilio_auth(),
+        twilio_auth=auth,
     )
+    voice_status_builder = TwilioVoiceStatusBuilder()
+    messaging_builder = TwilioMessagingBuilder(
+        twilio_auth=auth,
+        download_media=config.download_messaging_media,
+    )
+    fax_builder = TwilioFaxBuilder(twilio_auth=auth, download_fax=config.download_fax)
+    video_builder = TwilioVideoBuilder(
+        twilio_auth=auth,
+        download_video=config.download_video,
+        account_sid=config.twilio_account_sid,
+    )
+    conversations_builder = TwilioConversationsBuilder()
+
     poster = HttpPoster(config.conserver_url, config.get_headers(), config.ingress_lists)
     tracker = StateTracker(config.state_file)
+    sessions = SessionAggregator(tracker, config.messaging_session_window_hours)
 
-    # Twilio signature validator
     validator = None
     if config.validate_twilio_signature and config.twilio_auth_token:
         validator = RequestValidator(config.twilio_auth_token)
 
-    async def validate_twilio_request(request: Request) -> bool:
-        """Validate that request came from Twilio.
+    async def validate_twilio_request(request: Request, form_data: dict | None = None) -> dict:
+        if form_data is None:
+            form_data = dict((await request.form()).items())
 
-        Args:
-            request: FastAPI request object
-
-        Returns:
-            True if request is valid
-
-        Raises:
-            HTTPException: If validation fails
-        """
         if not config.validate_twilio_signature:
-            return True
+            return form_data
 
         if not validator:
             logger.warning("Signature validation enabled but validator not configured")
-            return True
+            return form_data
 
-        # Get the URL for validation
         url = config.webhook_url or str(request.url)
-
-        # Get the signature header
         signature = request.headers.get("X-Twilio-Signature", "")
 
-        # Get form data for validation
-        form_data = await request.form()
-        params = dict(form_data.items())
-
-        # Validate the request
-        if not validator.validate(url, params, signature):
+        if not validator.validate(url, form_data, signature):
             logger.warning(f"Invalid Twilio signature for request to {url}")
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
-        return True
+        return form_data
+
+    def _post_vcon(
+        resource_id: str,
+        vcon,
+        *,
+        call_sid: str = "",
+        from_number: str = "",
+        to_number: str = "",
+    ) -> PlainTextResponse:
+        success = poster.post(vcon)
+        status = "success" if success else "post_failed"
+        tracker.mark_processed(
+            resource_id,
+            vcon.uuid,
+            status=status,
+            call_sid=call_sid,
+            from_number=from_number,
+            to_number=to_number,
+        )
+        if success:
+            logger.info(f"Processed {resource_id} -> vCon {vcon.uuid}")
+        else:
+            logger.error(f"Failed to post vCon {vcon.uuid} for {resource_id}")
+        return PlainTextResponse("OK")
 
     @app.get("/health")
     async def health_check():
-        """Health check endpoint."""
-        return {"status": "healthy", "service": "vcon-telephony-adapters-twilio"}
+        return {
+            "status": "healthy",
+            "service": "vcon-telephony-adapters-twilio",
+            "modes": {
+                "voice_recording": config.enable_voice_recording,
+                "voice_status": config.enable_voice_status,
+                "messaging": config.enable_messaging,
+                "fax": config.enable_fax,
+                "video": config.enable_video,
+                "conversations": config.enable_conversations,
+            },
+        }
 
     @app.get("/webhook/demo")
     @app.post("/webhook/demo")
     async def demo_twiml(request: Request):
-        """Return TwiML to answer the call, record a message, and send recording webhooks.
-
-        Configure your Twilio number's 'A CALL COMES IN' to this URL (GET or POST).
-        The recording status callback is sent to /webhook/recording.
-        """
-        recording_callback = config.webhook_url or str(request.base_url).rstrip("/") + "/webhook/recording"
+        recording_callback = (
+            config.webhook_url or str(request.base_url).rstrip("/") + "/webhook/recording"
+        )
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say>Please leave a message after the beep.</Say>
@@ -109,147 +143,187 @@ def create_app(config: TwilioConfig) -> FastAPI:
         return Response(content=twiml, media_type="application/xml")
 
     @app.post("/webhook/recording", response_class=PlainTextResponse)
-    async def recording_status_callback(
-        request: Request,
-        RecordingSid: str = Form(...),
-        AccountSid: str = Form(default=""),
-        CallSid: str = Form(default=""),
-        RecordingUrl: str = Form(default=""),
-        RecordingStatus: str = Form(default=""),
-        RecordingDuration: str | None = Form(default=None),
-        RecordingChannels: str = Form(default="1"),
-        RecordingSource: str = Form(default=""),
-        RecordingStartTime: str | None = Form(default=None),
-        From: str = Form(default="", alias="From"),
-        To: str = Form(default="", alias="To"),
-        Caller: str = Form(default=""),
-        Called: str = Form(default=""),
-        Direction: str = Form(default=""),
-        CallStatus: str = Form(default=""),
-        ApiVersion: str = Form(default=""),
-        ForwardedFrom: str | None = Form(default=None),
-        CallerCity: str | None = Form(default=None),
-        CallerState: str | None = Form(default=None),
-        CallerZip: str | None = Form(default=None),
-        CallerCountry: str | None = Form(default=None),
-        CalledCity: str | None = Form(default=None),
-        CalledState: str | None = Form(default=None),
-        CalledZip: str | None = Form(default=None),
-        CalledCountry: str | None = Form(default=None),
-    ):
-        """Handle Twilio recording status callback.
+    async def recording_status_callback(request: Request):
+        if not config.enable_voice_recording:
+            return "OK"
 
-        This endpoint receives webhooks from Twilio when recordings are ready.
-        It creates a vCon from the recording data and posts it to the conserver.
-        """
-        # Validate Twilio signature
-        await validate_twilio_request(request)
+        form = await validate_twilio_request(request)
+        recording_sid = form.get("RecordingSid", "")
+        recording_status = form.get("RecordingStatus", "")
 
         logger.info(
-            f"Received recording callback: RecordingSid={RecordingSid}, "
-            f"Status={RecordingStatus}, CallSid={CallSid}"
+            f"Recording callback: RecordingSid={recording_sid}, Status={recording_status}"
         )
 
-        # Only process completed recordings
-        if RecordingStatus != "completed":
-            logger.info(f"Ignoring recording {RecordingSid} with status: {RecordingStatus}")
+        if recording_status != "completed":
             return "OK"
 
-        # Check if already processed
-        if tracker.is_processed(RecordingSid):
-            logger.info(f"Recording {RecordingSid} already processed, skipping")
+        if tracker.is_processed(recording_sid):
+            logger.info(f"Recording {recording_sid} already processed")
             return "OK"
 
-        # Build webhook data dictionary
-        webhook_data = {
-            "RecordingSid": RecordingSid,
-            "AccountSid": AccountSid,
-            "CallSid": CallSid,
-            "RecordingUrl": RecordingUrl,
-            "RecordingStatus": RecordingStatus,
-            "RecordingDuration": RecordingDuration,
-            "RecordingChannels": RecordingChannels,
-            "RecordingSource": RecordingSource,
-            "RecordingStartTime": RecordingStartTime,
-            "From": From,
-            "To": To,
-            "Caller": Caller or From,
-            "Called": Called or To,
-            "Direction": Direction,
-            "CallStatus": CallStatus,
-            "ApiVersion": ApiVersion,
-            "ForwardedFrom": ForwardedFrom,
-            "CallerCity": CallerCity,
-            "CallerState": CallerState,
-            "CallerZip": CallerZip,
-            "CallerCountry": CallerCountry,
-            "CalledCity": CalledCity,
-            "CalledState": CalledState,
-            "CalledZip": CalledZip,
-            "CalledCountry": CalledCountry,
-        }
-
-        # Parse recording data
-        recording_data = TwilioRecordingData(webhook_data)
-
-        # Build vCon
-        vcon = builder.build(recording_data)
+        recording_data = TwilioRecordingData(form)
+        vcon = recording_builder.build(recording_data)
         if not vcon:
-            logger.error(f"Failed to build vCon for recording {RecordingSid}")
-            tracker.mark_processed(
-                RecordingSid,
-                "",
-                status="build_failed",
-                call_sid=CallSid,
-                from_number=From,
-                to_number=To,
-            )
+            tracker.mark_processed(recording_sid, "", status="build_failed")
             return "OK"
 
-        # Post to conserver
-        success = poster.post(vcon)
+        return _post_vcon(
+            recording_sid,
+            vcon,
+            call_sid=form.get("CallSid", ""),
+            from_number=form.get("From", ""),
+            to_number=form.get("To", ""),
+        )
 
-        if success:
-            tracker.mark_processed(
-                RecordingSid,
-                vcon.uuid,
-                status="success",
-                call_sid=CallSid,
-                from_number=From,
-                to_number=To,
-            )
-            logger.info(f"Successfully processed recording {RecordingSid} -> vCon {vcon.uuid}")
+    @app.post("/webhook/voice/status", response_class=PlainTextResponse)
+    async def voice_status_callback(request: Request):
+        if not config.enable_voice_status:
+            return "OK"
+
+        form = await validate_twilio_request(request)
+        call_sid = form.get("CallSid", "")
+        if not call_sid or tracker.is_processed(f"call:{call_sid}"):
+            return "OK"
+
+        if not voice_status_builder.should_process(form):
+            return "OK"
+
+        vcon = voice_status_builder.build(form)
+        if not vcon:
+            return "OK"
+
+        return _post_vcon(
+            f"call:{call_sid}",
+            vcon,
+            call_sid=call_sid,
+            from_number=form.get("From", ""),
+            to_number=form.get("To", ""),
+        )
+
+    @app.post("/webhook/messaging", response_class=PlainTextResponse)
+    async def messaging_callback(request: Request):
+        if not config.enable_messaging:
+            return "OK"
+
+        form = await validate_twilio_request(request)
+        message_sid = form.get("MessageSid", "")
+        if not message_sid or tracker.is_processed(message_sid):
+            return "OK"
+
+        if not messaging_builder.should_process_inbound(form) and not messaging_builder.should_process_status(
+            form
+        ):
+            return "OK"
+
+        vcon = messaging_builder.build(form)
+        if not vcon:
+            return "OK"
+
+        from ._common import detect_messaging_channel
+
+        channel = detect_messaging_channel(form)
+        sessions.touch_session(
+            sessions.session_key(
+                from_addr=form.get("From", ""),
+                to_addr=form.get("To", ""),
+                channel=channel,
+            ),
+            vcon.uuid,
+        )
+
+        return _post_vcon(
+            message_sid,
+            vcon,
+            from_number=form.get("From", ""),
+            to_number=form.get("To", ""),
+        )
+
+    @app.post("/webhook/fax", response_class=PlainTextResponse)
+    async def fax_callback(request: Request):
+        if not config.enable_fax:
+            return "OK"
+
+        form = await validate_twilio_request(request)
+        fax_sid = form.get("FaxSid", "")
+        if not fax_sid or tracker.is_processed(fax_sid):
+            return "OK"
+
+        if not fax_builder.should_process(form):
+            return "OK"
+
+        vcon = fax_builder.build(form)
+        if not vcon:
+            return "OK"
+
+        return _post_vcon(
+            fax_sid,
+            vcon,
+            from_number=form.get("From", ""),
+            to_number=form.get("To", ""),
+        )
+
+    @app.post("/webhook/video", response_class=PlainTextResponse)
+    async def video_callback(request: Request):
+        if not config.enable_video:
+            return "OK"
+
+        form = await validate_twilio_request(request)
+        resource_id = form.get("CompositionSid") or form.get("RecordingSid") or form.get("RoomSid", "")
+        if not resource_id or tracker.is_processed(resource_id):
+            return "OK"
+
+        if not video_builder.should_process(form):
+            return "OK"
+
+        vcon = video_builder.build(form)
+        if not vcon:
+            return "OK"
+
+        return _post_vcon(resource_id, vcon)
+
+    @app.post("/webhook/conversations", response_class=PlainTextResponse)
+    async def conversations_callback(request: Request):
+        if not config.enable_conversations:
+            return "OK"
+
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            payload: dict[str, Any] = await request.json()
         else:
-            tracker.mark_processed(
-                RecordingSid,
-                vcon.uuid,
-                status="post_failed",
-                call_sid=CallSid,
-                from_number=From,
-                to_number=To,
-            )
-            logger.error(f"Failed to post vCon {vcon.uuid} for recording {RecordingSid}")
+            form = await validate_twilio_request(request)
+            payload = dict(form)
 
-        # Always return 200 OK to Twilio to prevent retries
-        return "OK"
+        event_type = payload.get("EventType") or payload.get("event_type", "")
+        message_sid = payload.get("MessageSid") or payload.get("message_sid", "")
+        conversation_sid = payload.get("ConversationSid") or payload.get("conversation_sid", "")
+        resource_id = message_sid or f"{conversation_sid}:{event_type}"
 
-    @app.get("/status/{recording_sid}")
-    async def get_recording_status(recording_sid: str):
-        """Get processing status for a recording.
+        if not resource_id or tracker.is_processed(resource_id):
+            return "OK"
 
-        Args:
-            recording_sid: Twilio RecordingSid
+        if not conversations_builder.should_process(payload):
+            return "OK"
 
-        Returns:
-            Processing status information
-        """
-        if not tracker.is_processed(recording_sid):
-            raise HTTPException(status_code=404, detail="Recording not found")
+        vcon = conversations_builder.build(payload)
+        if not vcon:
+            return "OK"
+
+        if conversation_sid:
+            sessions.touch_session(sessions.conversation_key(conversation_sid), vcon.uuid)
+
+        return _post_vcon(resource_id, vcon)
+
+    @app.get("/status/{resource_id}")
+    async def get_resource_status(resource_id: str):
+        if not tracker.is_processed(resource_id):
+            raise HTTPException(status_code=404, detail="Resource not found")
 
         return {
-            "recording_sid": recording_sid,
-            "vcon_uuid": tracker.get_vcon_uuid(recording_sid),
-            "status": tracker.get_processing_status(recording_sid),
+            "resource_id": resource_id,
+            "recording_sid": resource_id if resource_id.startswith("RE") else None,
+            "vcon_uuid": tracker.get_vcon_uuid(resource_id),
+            "status": tracker.get_processing_status(resource_id),
         }
 
     return app

@@ -1,0 +1,8 @@
+{
+  "EventType": "onMessageAdded",
+  "ConversationSid": "CHtest1234567890abcdef12345678",
+  "MessageSid": "IMtest1234567890abcdef12345678",
+  "Author": "user_alice",
+  "Body": "Hello from Conversations API",
+  "ChannelType": "sms"
+}

@@ -1,0 +1,12 @@
+{
+  "MessageSid": "MMtest1234567890abcdef12345678",
+  "AccountSid": "ACtest1234567890abcdef12345678",
+  "From": "+15551234567",
+  "To": "+15559876543",
+  "Body": "Check this image",
+  "NumMedia": "1",
+  "MediaUrl0": "https://api.twilio.com/2010-04-01/Accounts/ACtest/Media/MEtest",
+  "MediaContentType0": "image/jpeg",
+  "SmsStatus": "received",
+  "Direction": "inbound"
+}

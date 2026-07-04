@@ -1,0 +1,12 @@
+{
+  "MessageSid": "SMwhats1234567890abcdef12345678",
+  "AccountSid": "ACtest1234567890abcdef12345678",
+  "From": "whatsapp:+15551234567",
+  "To": "whatsapp:+15559876543",
+  "Body": "Hello via WhatsApp",
+  "NumMedia": "0",
+  "ProfileName": "Test User",
+  "WaId": "15551234567",
+  "SmsStatus": "received",
+  "Direction": "inbound"
+}

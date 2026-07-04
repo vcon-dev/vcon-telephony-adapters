@@ -627,7 +627,7 @@ class TestWebhookErrorHandling:
 
     def test_returns_ok_even_on_build_failure(self, mock_config):
         """Returns OK even when vCon build fails."""
-        with patch("twilio_adapter.webhook.VconBuilder") as mock_builder_class:
+        with patch("adapters.twilio.webhook.TwilioVconBuilder") as mock_builder_class:
             mock_builder = MagicMock()
             mock_builder.build.return_value = None  # Simulate build failure
             mock_builder_class.return_value = mock_builder
