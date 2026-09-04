@@ -11,6 +11,7 @@ from core.tracker import StateTracker
 
 from .builder import TelnyxRecordingData, TelnyxVconBuilder
 from .config import TelnyxConfig
+from .provision import TelnyxProvisioner, handle_call_event
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,54 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         except Exception as e:
             logger.warning(f"Signature validation error: {e}")
             return False
+
+    # Smart trunk: fork every answered call to our SRS using the customer's
+    # own Telnyx key. Only mounted when explicitly enabled and keyed.
+    provisioner = (
+        TelnyxProvisioner(config.telnyx_api_key, base_url=config.telnyx_api_url)
+        if config.auto_siprec and config.telnyx_api_key
+        else None
+    )
+    if config.auto_siprec and not provisioner:
+        logger.error(
+            "TELNYX_AUTO_SIPREC is on but TELNYX_API_KEY is unset; not forking any calls"
+        )
+
+    @app.post("/webhook/call", response_class=PlainTextResponse)
+    async def call_event(
+        request: Request,
+        telnyx_signature_ed25519: str | None = Header(default=None),
+        telnyx_timestamp: str | None = Header(default=None),
+    ):
+        """Handle a Telnyx call lifecycle event and start the SIPREC fork.
+
+        Always returns 200. A recording we failed to start is recoverable; a
+        non-2xx here just makes Telnyx retry an event whose call has moved on.
+        """
+        body = await request.body()
+        if not validate_telnyx_signature(body, telnyx_signature_ed25519, telnyx_timestamp):
+            logger.warning("Invalid Telnyx webhook signature on call event")
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+        if not provisioner:
+            return "OK"
+
+        try:
+            event_data = await request.json()
+        except Exception:
+            logger.error("Failed to parse JSON body on call event")
+            return "OK"
+
+        call_control_id = handle_call_event(
+            event_data,
+            provisioner,
+            config.siprec_connector_name,
+            transcribe=config.transcribe_realtime,
+        )
+        if call_control_id:
+            logger.info("Started SIPREC fork on call %s", call_control_id)
+
+        return "OK"
 
     @app.get("/health")
     async def health_check():
