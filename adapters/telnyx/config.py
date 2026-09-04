@@ -43,6 +43,25 @@ class TelnyxConfig(BaseConfig):
         # Webhook URL (for signature validation)
         self.webhook_url = os.getenv("TELNYX_WEBHOOK_URL")
 
+        # --- Smart trunk (bring your own key) ---
+        # When auto_siprec is on, every answered call is forked to our SRS via
+        # the customer's own Telnyx account. Off by default: forking someone's
+        # calls is not something to start doing because a variable was unset.
+        self.auto_siprec = os.getenv("TELNYX_AUTO_SIPREC", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self.siprec_connector_name = os.getenv(
+            "TELNYX_CONNECTOR_NAME", "vconic-smart-trunk"
+        )
+        # Telnyx-side realtime transcription, billed per minute to the customer.
+        self.transcribe_realtime = os.getenv("TELNYX_REALTIME_TRANSCRIPTION", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
     def get_api_headers(self) -> dict:
         """Get headers for Telnyx API requests.
 

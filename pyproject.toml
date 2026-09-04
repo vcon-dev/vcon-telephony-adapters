@@ -50,6 +50,8 @@ all = [
 vcon-adapter = "main:main"
 # Keep backwards compatibility
 vcon-twilio-adapter = "main:main"
+# Smart trunk (BYOK) provisioning against a customer's own Telnyx account
+vcon-telnyx-provision = "adapters.telnyx.provision:main"
 
 [project.urls]
 Homepage = "https://github.com/vcon-dev/vcon-telephony-adapters"
