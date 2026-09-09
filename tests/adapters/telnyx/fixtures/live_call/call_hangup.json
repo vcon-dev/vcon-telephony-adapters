@@ -1,0 +1,52 @@
+{
+  "data": {
+    "event_type": "call.hangup",
+    "id": "420669d8-596a-438f-8b3f-6047182ffa77",
+    "occurred_at": "2026-09-09T21:10:37.425279Z",
+    "payload": {
+      "call_control_id": "v3:Af-9__fX2HxpQXLbhR9OfB6BaOcMxRioiDceo99OjJqXIRqKPPmyWQ",
+      "call_leg_id": "db3dee84-ac92-11f1-890f-4e3d2db56c39",
+      "call_quality_stats": {
+        "inbound": {
+          "jitter_max_variance": "0.00",
+          "jitter_packet_count": "0",
+          "mos": "4.50",
+          "packet_count": "935",
+          "skip_packet_count": "40"
+        },
+        "outbound": {
+          "packet_count": "826",
+          "skip_packet_count": "0"
+        }
+      },
+      "call_session_id": "db3dddae-ac92-11f1-b906-4e3d2db56c39",
+      "calling_party_type": "pstn",
+      "client_state": null,
+      "connection_id": "2371245565427058422",
+      "custom_headers": [
+        {
+          "name": "P-Early-Media",
+          "value": "supported"
+        },
+        {
+          "name": "P-Visited-Network-ID",
+          "value": "neatf421.sip.t-mobile.com"
+        }
+      ],
+      "end_time": "2026-09-09T21:10:37.425279Z",
+      "flow_destination": "telnyx_number_cc_app",
+      "from": "+15083649972",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "callee",
+      "sip_hangup_cause": "unspecified",
+      "start_time": "2026-09-09T21:10:16.845276Z",
+      "telnyx_error": null,
+      "to": "+14012041080"
+    },
+    "record_type": "event"
+  },
+  "meta": {
+    "attempt": 1,
+    "delivered_to": "https://e7b3606ee7e8.ngrok.app/hook"
+  }
+}

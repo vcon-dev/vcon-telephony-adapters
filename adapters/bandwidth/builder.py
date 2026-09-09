@@ -8,6 +8,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,7 @@ class BandwidthVconBuilder(BaseVconBuilder):
         download_recordings: bool = True,
         recording_format: str = "wav",
         api_auth: tuple | None = None,
+        publisher: AudioPublisher | None = None,
     ):
         """Initialize Bandwidth vCon builder.
 
@@ -175,7 +177,7 @@ class BandwidthVconBuilder(BaseVconBuilder):
             recording_format: Preferred recording format (wav or mp3)
             api_auth: Tuple of (username, password) for Bandwidth API auth
         """
-        super().__init__(download_recordings, recording_format)
+        super().__init__(download_recordings, recording_format, publisher)
         self.api_auth = api_auth
 
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:

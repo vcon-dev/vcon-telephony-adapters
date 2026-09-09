@@ -1,0 +1,41 @@
+{
+  "data": {
+    "event_type": "call.initiated",
+    "id": "8e9d31c3-9052-41c4-aca9-dffa579e0669",
+    "occurred_at": "2026-09-09T21:10:16.845276Z",
+    "payload": {
+      "call_control_id": "v3:Af-9__fX2HxpQXLbhR9OfB6BaOcMxRioiDceo99OjJqXIRqKPPmyWQ",
+      "call_leg_id": "db3dee84-ac92-11f1-890f-4e3d2db56c39",
+      "call_session_id": "db3dddae-ac92-11f1-b906-4e3d2db56c39",
+      "caller_id_name": "+15083649972",
+      "calling_party_type": "pstn",
+      "client_state": null,
+      "connection_codecs": "G722,PCMA,PCMU,VP8,H264",
+      "connection_id": "2371245565427058422",
+      "custom_headers": [
+        {
+          "name": "P-Early-Media",
+          "value": "supported"
+        },
+        {
+          "name": "P-Visited-Network-ID",
+          "value": "neatf421.sip.t-mobile.com"
+        }
+      ],
+      "direction": "incoming",
+      "flow_destination": "telnyx_number_cc_app",
+      "from": "+15083649972",
+      "from_sip_uri": "+15083649972@64.133.0.149",
+      "offered_codecs": "AMR-WB~OCTET-ALIGN=0; MODE-SET=0,16000H,AMR-WB~OCTET-ALIGN=1; MODE-SET=0,16000H,PCMU",
+      "start_time": "2026-09-09T21:10:16.845276Z",
+      "state": "parked",
+      "to": "+14012041080",
+      "to_sip_uri": "+14012041080@192.76.120.9"
+    },
+    "record_type": "event"
+  },
+  "meta": {
+    "attempt": 1,
+    "delivered_to": "https://e7b3606ee7e8.ngrok.app/hook"
+  }
+}
