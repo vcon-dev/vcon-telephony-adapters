@@ -44,6 +44,27 @@ class BaseConfig:
             item.strip() for item in ingress_lists_str.split(",") if item.strip()
         ]
 
+        # --- Media handling -------------------------------------------
+        # Where call audio goes. "embed" inlines base64 into the vCon, which
+        # is the historical default and makes a vCon roughly 1.3x the size of
+        # the audio: a few minutes of WAV produces a multi-megabyte object.
+        # "s3" or "filesystem" re-host the audio and put a `url` plus a
+        # `content_hash` in the dialog instead, which is ~800x smaller and is
+        # what any real deployment should use.
+        #
+        # Re-hosting is not optional for some platforms: Telnyx hands back a
+        # pre-signed URL that expires in 600s, so referencing it directly
+        # yields a vCon whose audio link is dead within ten minutes.
+        self.media_backend = os.getenv("MEDIA_BACKEND", "embed").strip().lower()
+        self.media_base_url = os.getenv("MEDIA_BASE_URL")
+        self.media_filesystem_path = os.getenv("MEDIA_FILESYSTEM_PATH")
+        self.media_s3_bucket = os.getenv("MEDIA_S3_BUCKET")
+        self.media_s3_region = os.getenv("MEDIA_S3_REGION")
+        self.media_s3_prefix = os.getenv("MEDIA_S3_PREFIX", "")
+        # Set for any S3-compatible store (DigitalOcean Spaces, MinIO, Telnyx
+        # Cloud Storage). Leave unset for AWS.
+        self.media_s3_endpoint_url = os.getenv("MEDIA_S3_ENDPOINT_URL")
+
         # Recording download settings
         self.download_recordings = os.getenv("DOWNLOAD_RECORDINGS", "true").lower() in (
             "true",
@@ -67,3 +88,41 @@ class BaseConfig:
         if self.conserver_api_token:
             headers[self.conserver_header_name] = self.conserver_api_token
         return headers
+
+    def build_publisher(self):
+        """Construct the configured `AudioPublisher`, or None to embed.
+
+        Raises rather than silently falling back to embedding: a deployment
+        that asked for S3 and quietly got multi-megabyte inline vCons instead
+        is worse than one that refuses to start.
+        """
+        from .media_publisher import FilesystemPublisher, S3Publisher
+
+        backend = self.media_backend
+        if backend in ("", "embed", "inline", "none"):
+            return None
+
+        if backend == "filesystem":
+            if not self.media_filesystem_path:
+                raise ValueError(
+                    "MEDIA_BACKEND=filesystem requires MEDIA_FILESYSTEM_PATH"
+                )
+            return FilesystemPublisher(
+                destination=self.media_filesystem_path,
+                base_url=self.media_base_url,
+            )
+
+        if backend == "s3":
+            if not self.media_s3_bucket:
+                raise ValueError("MEDIA_BACKEND=s3 requires MEDIA_S3_BUCKET")
+            return S3Publisher(
+                bucket=self.media_s3_bucket,
+                region=self.media_s3_region,
+                prefix=self.media_s3_prefix,
+                endpoint_url=self.media_s3_endpoint_url,
+                base_url=self.media_base_url,
+            )
+
+        raise ValueError(
+            f"Unknown MEDIA_BACKEND {backend!r}; use embed, filesystem or s3"
+        )

@@ -270,3 +270,130 @@ def test_real_payload_carries_no_party_identity(real_event):
     data = TelnyxRecordingData(real_event)
     assert data.from_number == ""
     assert data.to_number == ""
+
+
+# -- thin vCons: external media --------------------------------------------
+#
+# Embedding base64 audio makes a vCon ~1.3x the size of the recording. A `url`
+# plus a `content_hash` is ~800x smaller and stays verifiable. For Telnyx it is
+# not merely preferable: the source URL expires in 600s, so a vCon that
+# references it directly has a dead link within ten minutes.
+
+
+@pytest.fixture
+def dual_channel_wav():
+    """~19s of dual-channel 8kHz, the shape of a real Telnyx recording."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(bytes(2 * 2 * 8000 * 19))
+    return buf.getvalue()
+
+
+def _build(event, audio, **kwargs):
+    response = MagicMock()
+    response.content = audio
+    response.status_code = 200
+    response.raise_for_status = MagicMock()
+    with patch("adapters.telnyx.builder.requests.get", return_value=response):
+        return TelnyxVconBuilder(recording_format="wav", api_key="k", **kwargs).build(
+            TelnyxRecordingData(event)
+        )
+
+
+def test_publisher_replaces_inline_audio_with_url_and_hash(
+    real_event, dual_channel_wav, tmp_path
+):
+    from core.media_publisher import FilesystemPublisher
+
+    vcon = _build(
+        real_event,
+        dual_channel_wav,
+        publisher=FilesystemPublisher(
+            destination=tmp_path, base_url="https://media.test/rec"
+        ),
+    )
+    dialog = vcon.to_dict()["dialog"][0]
+
+    assert dialog["url"].startswith("https://media.test/rec/")
+    assert dialog["content_hash"].startswith("sha512-")
+    assert "body" not in dialog, "audio must not be inlined when publishing"
+    assert "encoding" not in dialog
+    assert vcon.is_valid()[0]
+
+
+def test_content_hash_matches_the_audio(real_event, dual_channel_wav, tmp_path):
+    """The hash has to be verifiable by whoever later fetches the URL."""
+    import base64 as b64
+    import hashlib
+
+    from core.media_publisher import FilesystemPublisher
+
+    vcon = _build(
+        real_event,
+        dual_channel_wav,
+        publisher=FilesystemPublisher(destination=tmp_path, base_url="https://m.test"),
+    )
+    expected = "sha512-" + b64.urlsafe_b64encode(
+        hashlib.sha512(dual_channel_wav).digest()
+    ).decode().rstrip("=")
+    assert vcon.to_dict()["dialog"][0]["content_hash"] == expected
+
+
+def test_thin_vcon_is_dramatically_smaller(real_event, dual_channel_wav, tmp_path):
+    from core.media_publisher import FilesystemPublisher
+
+    fat = _build(real_event, dual_channel_wav, download_recordings=True)
+    thin = _build(
+        real_event,
+        dual_channel_wav,
+        publisher=FilesystemPublisher(destination=tmp_path, base_url="https://m.test"),
+    )
+    assert len(thin.to_json()) * 100 < len(fat.to_json()), (
+        "external media should be orders of magnitude smaller"
+    )
+
+
+def test_s3_publisher_uploads_with_the_right_key_and_type(
+    real_event, dual_channel_wav
+):
+    """No credentials needed: S3Publisher takes an injected client."""
+    from core.media_publisher import S3Publisher
+
+    seen = {}
+
+    class FakeS3:
+        def upload_file(self, Filename=None, Bucket=None, Key=None, ExtraArgs=None, **kw):
+            seen.update(bucket=Bucket, key=Key, extra=ExtraArgs)
+
+    vcon = _build(
+        real_event,
+        dual_channel_wav,
+        publisher=S3Publisher(
+            bucket="vconic-media",
+            prefix="telnyx",
+            base_url="https://vconic-media.nyc3.digitaloceanspaces.com",
+            client=FakeS3(),
+        ),
+    )
+
+    assert seen["bucket"] == "vconic-media"
+    assert seen["key"].startswith("telnyx/")
+    assert seen["extra"]["ContentType"] == "audio/wav"
+    assert vcon.to_dict()["dialog"][0]["url"].startswith(
+        "https://vconic-media.nyc3.digitaloceanspaces.com/telnyx/"
+    )
+
+
+def test_reference_url_does_not_mangle_a_presigned_telnyx_url(real_event):
+    """Regression: the base builder appends `.wav` to select a Twilio format.
+
+    Doing that to a Telnyx URL lands the suffix after the AWS query string and
+    produces a link that cannot resolve.
+    """
+    vcon = _build(real_event, b"", download_recordings=False)
+    url = vcon.to_dict()["dialog"][0]["url"]
+    assert "X-Amz-Signature" in url
+    assert not url.endswith(".wav"), "extension appended after the query string"

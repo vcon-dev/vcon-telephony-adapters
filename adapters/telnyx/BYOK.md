@@ -57,6 +57,30 @@ Point the customer's Telnyx webhook URL at `/webhook/call`. Auto-forking is off
 unless `TELNYX_AUTO_SIPREC` is explicitly on — forking someone's calls should not
 start happening because a variable was unset.
 
+## Keep the vCons thin
+
+By default the adapter inlines audio as base64, which makes a vCon roughly 1.3x
+the size of the recording. A twenty-second call becomes an 800 KB JSON object;
+an hour-long one becomes unusable. Re-host instead and the dialog carries a
+`url` plus a `content_hash` — about **800x smaller**, and still verifiable.
+
+```bash
+MEDIA_BACKEND=s3
+MEDIA_S3_BUCKET=vconic-media
+MEDIA_S3_PREFIX=telnyx
+MEDIA_S3_ENDPOINT_URL=https://nyc3.digitaloceanspaces.com   # any S3-compatible store
+MEDIA_BASE_URL=https://vconic-media.nyc3.digitaloceanspaces.com
+```
+
+`MEDIA_BACKEND=filesystem` with `MEDIA_FILESYSTEM_PATH` is the local equivalent.
+S3 needs `boto3`, which is not a base dependency.
+
+**Re-hosting is not optional for Telnyx.** Recording URLs are pre-signed and
+expire in 600 seconds, so a vCon that references the Telnyx URL directly has a
+dead audio link within ten minutes. The audio must be fetched and re-hosted
+inside that window, which also makes the fetch a hard deadline for the whole
+pipeline rather than something that can be retried tomorrow.
+
 ## Handling the customer's key
 
 It is their key and it controls their telephony account.

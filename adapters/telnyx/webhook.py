@@ -32,10 +32,18 @@ def create_app(config: TelnyxConfig) -> FastAPI:
     )
 
     # Initialize components
+    publisher = config.build_publisher()
+    if publisher is None:
+        logger.warning(
+            "MEDIA_BACKEND=embed: audio will be inlined as base64, making each "
+            "vCon roughly 1.3x the size of the recording. Set MEDIA_BACKEND=s3 "
+            "for anything beyond a lab."
+        )
     builder = TelnyxVconBuilder(
         download_recordings=config.download_recordings,
         recording_format=config.recording_format,
         api_key=config.telnyx_api_key,
+        publisher=publisher,
     )
     poster = HttpPoster(config.conserver_url, config.get_headers(), config.ingress_lists)
     tracker = StateTracker(config.state_file)

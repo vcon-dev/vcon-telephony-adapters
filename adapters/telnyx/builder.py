@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
         download_recordings: bool = True,
         recording_format: str = "wav",
         api_key: str | None = None,
+        publisher: AudioPublisher | None = None,
     ):
         """Initialize Telnyx vCon builder.
 
@@ -211,8 +213,17 @@ class TelnyxVconBuilder(BaseVconBuilder):
             recording_format: Preferred recording format (wav or mp3)
             api_key: Telnyx API key for authenticated downloads
         """
-        super().__init__(download_recordings, recording_format)
+        super().__init__(download_recordings, recording_format, publisher)
         self.api_key = api_key
+
+    def _reference_url(self, recording_url: str) -> str:
+        """Telnyx URLs are already per-format and pre-signed.
+
+        `recording_urls` is a dict keyed by format, and each value carries an
+        AWS query string. Appending `.wav` would land after the signature and
+        produce a link that cannot resolve.
+        """
+        return recording_url
 
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:
         """Download recording from Telnyx.
