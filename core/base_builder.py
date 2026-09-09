@@ -163,7 +163,11 @@ class BaseVconBuilder(ABC):
                 "start": start_time,
                 "parties": [0, 1],
                 "originator": originator,
-                "mimetype": mime_type,
+                # `mediatype` is the spec field (draft-ietf-vcon-vcon-core-02).
+                # `mimetype` is not, so it landed as an unknown extra key while
+                # `mediatype` stayed absent, and vcon-lib's own validator
+                # rejects a dialog without it.
+                "mediatype": mime_type,
             }
 
             # Add duration if available

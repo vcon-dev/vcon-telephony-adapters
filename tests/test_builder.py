@@ -358,15 +358,38 @@ class TestVconBuilderDialogContent:
         # Duration should be None or not in dialog dict
         assert vcon.dialog[0].get("duration") is None
 
-    def test_dialog_mimetype_wav(self, builder_no_download, basic_recording_data):
+    def test_built_vcon_passes_spec_validation(self, builder_no_download, basic_recording_data):
+        """The assertion whose absence let an invalid vCon ship.
+
+        `core/base_builder` emitted `mimetype`, which is not the field in
+        draft-ietf-vcon-vcon-core-02. It landed as an unknown extra key while
+        `mediatype` stayed absent, so vcon-lib's own validator rejected every
+        vCon every adapter in this monorepo produced:
+
+            (False, ['Dialog at index 0 has an invalid or missing mediatype'])
+
+        Nothing noticed because no test had ever asked a real vCon whether it
+        was valid. This one does.
+        """
+        vcon = builder_no_download.build(basic_recording_data)
+        valid, errors = vcon.is_valid()
+        assert valid, f"vCon failed spec validation: {errors}"
+
+    def test_dialog_carries_no_non_spec_mimetype_key(
+        self, builder_no_download, basic_recording_data
+    ):
+        vcon = builder_no_download.build(basic_recording_data)
+        assert "mimetype" not in vcon.dialog[0], "non-spec field is back"
+
+    def test_dialog_mediatype_wav(self, builder_no_download, basic_recording_data):
         """Dialog MIME type for WAV format."""
         vcon = builder_no_download.build(basic_recording_data)
-        assert vcon.dialog[0]["mimetype"] == "audio/wav"
+        assert vcon.dialog[0]["mediatype"] == "audio/wav"
 
-    def test_dialog_mimetype_mp3(self, builder_mp3, basic_recording_data):
+    def test_dialog_mediatype_mp3(self, builder_mp3, basic_recording_data):
         """Dialog MIME type for MP3 format."""
         vcon = builder_mp3.build(basic_recording_data)
-        assert vcon.dialog[0]["mimetype"] == "audio/mpeg"
+        assert vcon.dialog[0]["mediatype"] == "audio/mpeg"
 
 
 class TestVconBuilderOriginator:
@@ -699,7 +722,7 @@ class TestMimeTypes:
         vcon = builder.build(data)
 
         # Should fall back to wav
-        assert vcon.dialog[0]["mimetype"] == "audio/wav"
+        assert vcon.dialog[0]["mediatype"] == "audio/wav"
 
 
 class TestVconBuilderEdgeCases:
