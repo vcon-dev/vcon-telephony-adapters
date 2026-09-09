@@ -63,3 +63,6 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 .claude/
+
+# live BYOK test output (real call audio, presigned URLs)
+out/

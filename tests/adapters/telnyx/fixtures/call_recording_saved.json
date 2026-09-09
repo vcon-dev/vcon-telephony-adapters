@@ -1,0 +1,32 @@
+{
+  "data": {
+    "event_type": "call.recording.saved",
+    "id": "515bd57f-b699-4b23-b7a4-95c14218ce12",
+    "occurred_at": "2026-09-09T20:48:03.402478Z",
+    "payload": {
+      "call_control_id": "v3:WOQoAu8RSoOh8WZr_4ArKbSFrJ4xXWoVVWYMScb_VutyC0fBFgaXPw",
+      "call_leg_id": "b25ba3b0-ac8f-11f1-90f6-02420aef95a1",
+      "call_session_id": "b25b95d2-ac8f-11f1-949e-02420aef95a1",
+      "calling_party_type": "pstn",
+      "channels": "dual",
+      "client_state": null,
+      "connection_id": "2371245565427058422",
+      "end_time": "2026-09-09T20:48:01.174027Z",
+      "flow_destination": "telnyx_number_cc_app",
+      "format": "wav",
+      "public_recording_urls": {},
+      "recording_ended_at": "2026-09-09T20:48:01.174027Z",
+      "recording_id": "c76d5779-7403-4bf8-85de-3c123b6db037",
+      "recording_started_at": "2026-09-09T20:47:41.842862Z",
+      "recording_urls": {
+        "wav": "https://s3.amazonaws.com/telephony-recorder-prod/cfc37ba1-30af-46a0-a60d-23798ef6a60f/2026-09-09/b25ba3b0-ac8f-11f1-90f6-02420aef95a1-1788986861842840.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAREDACTED%2F20260909%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260909T204803Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=REDACTED"
+      },
+      "start_time": "2026-09-09T20:47:41.842862Z"
+    },
+    "record_type": "event"
+  },
+  "meta": {
+    "attempt": 1,
+    "delivered_to": "https://aa71cd24e3bd.ngrok.app/hook"
+  }
+}

@@ -3,12 +3,26 @@
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 
 logger = logging.getLogger(__name__)
+
+TELNYX_API_HOSTS = ("api.telnyx.com",)
+
+
+def _is_telnyx_host(url: str) -> bool:
+    """True only for Telnyx's own API host.
+
+    Recording URLs point at pre-signed S3, which must be fetched anonymously.
+    """
+    try:
+        return urlparse(url).hostname in TELNYX_API_HOSTS
+    except ValueError:
+        return False
 
 
 class TelnyxRecordingData(BaseRecordingData):
@@ -17,31 +31,37 @@ class TelnyxRecordingData(BaseRecordingData):
     Telnyx sends webhooks for call recording events with
     standardized event structure.
 
-    Expected webhook structure:
+    Observed payload (a real `call.recording.saved`, 2026-09-09, CON-844):
+
     {
         "data": {
             "event_type": "call.recording.saved",
-            "id": "event_id",
-            "occurred_at": "2024-01-15T10:30:00Z",
+            "occurred_at": "...",
             "payload": {
-                "call_control_id": "uuid",
-                "call_leg_id": "uuid",
-                "call_session_id": "uuid",
-                "connection_id": "uuid",
-                "recording_id": "uuid",
-                "recording_urls": {
-                    "mp3": "https://...",
-                    "wav": "https://..."
-                },
-                "channels": "single" | "dual",
-                "duration_millis": 30000,
-                "from": "+15551234567",
-                "to": "+15559876543",
-                "direction": "incoming" | "outgoing",
-                "start_time": "2024-01-15T10:29:30Z"
+                "call_control_id": "v3:...",
+                "call_leg_id": "...",
+                "call_session_id": "...",
+                "connection_id": "...",
+                "recording_id": "...",
+                "recording_urls": {"wav": "https://s3.amazonaws.com/...?X-Amz-..."},
+                "public_recording_urls": {},
+                "channels": "dual",
+                "format": "wav",
+                "calling_party_type": "pstn",
+                "flow_destination": "telnyx_number_cc_app",
+                "recording_started_at": "...",
+                "recording_ended_at": "...",
+                "start_time": "...",
+                "end_time": "..."
             }
         }
     }
+
+    Note what is NOT there: `from`, `to`, `direction`, `duration_millis`. An
+    earlier version of this docstring claimed all four. Party identity lives
+    only on the lifecycle events (`call.initiated`, `.answered`, `.hangup`),
+    so a recording event on its own cannot produce a vCon with parties. See
+    CON-803: correlating those events is required, not an enhancement.
     """
 
     def __init__(self, event_data: dict[str, Any]):
@@ -107,7 +127,22 @@ class TelnyxRecordingData(BaseRecordingData):
 
     @property
     def duration_seconds(self) -> float | None:
-        """Recording duration in seconds."""
+        """Recording duration in seconds.
+
+        `duration_millis` is not actually sent on `call.recording.saved`; the
+        real payload carries `recording_started_at` / `recording_ended_at`.
+        Both are handled, timestamps first.
+        """
+        started = self._payload.get("recording_started_at")
+        ended = self._payload.get("recording_ended_at")
+        if started and ended:
+            try:
+                t0 = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+                return round((t1 - t0).total_seconds(), 3)
+            except (ValueError, AttributeError, TypeError):
+                pass
+
         duration_millis = self._payload.get("duration_millis")
         if duration_millis is not None:
             try:
@@ -204,8 +239,16 @@ class TelnyxVconBuilder(BaseVconBuilder):
         try:
             logger.debug(f"Downloading recording from: {recording_url}")
 
+            # Telnyx hands back a **pre-signed S3 URL**, not a Telnyx-hosted one.
+            # Two reasons never to attach the bearer token to it:
+            #   1. S3 rejects a request carrying both a presigned signature and an
+            #      Authorization header -> 400, so every download failed.
+            #   2. Under BYOK that token is the *customer's* Telnyx API key, and
+            #      sending it to s3.amazonaws.com leaks their credential to a
+            #      third party.
+            # Only authenticate to Telnyx's own API host.
             headers = {}
-            if self.api_key:
+            if self.api_key and _is_telnyx_host(recording_url):
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
             response = requests.get(recording_url, headers=headers, timeout=60)

@@ -11,14 +11,20 @@ stdlib.
 """
 
 import io
+import json
 import wave
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from adapters.telnyx import TelnyxConfig, create_app
-from adapters.telnyx.builder import TelnyxRecordingData, TelnyxVconBuilder
+from adapters.telnyx.builder import (
+    TelnyxRecordingData,
+    TelnyxVconBuilder,
+    _is_telnyx_host,
+)
 
 FROM_NUMBER = "+15085550101"
 TO_NUMBER = "+16175550102"
@@ -184,3 +190,83 @@ def test_webhook_posts_a_valid_vcon_to_the_conserver(
 
     valid, errors = posted[0].is_valid()
     assert valid, f"the vCon sent to the conserver is not spec-valid: {errors}"
+
+
+# -- against a real captured Telnyx payload --------------------------------
+#
+# `fixtures/call_recording_saved.json` is a genuine `call.recording.saved` from
+# a live call on 2026-09-09 (CON-844), AWS signature redacted. Every assertion
+# below encodes something the documentation did not tell us.
+
+FIXTURE = Path(__file__).parent / "fixtures" / "call_recording_saved.json"
+
+
+@pytest.fixture
+def real_event():
+    return json.loads(FIXTURE.read_text())
+
+
+def test_recording_url_is_presigned_s3_not_telnyx(real_event):
+    """The recording does not live on Telnyx's API host."""
+    data = TelnyxRecordingData(real_event)
+    assert "s3.amazonaws.com" in data.recording_url
+    assert "X-Amz-Signature" in data.recording_url
+    assert not _is_telnyx_host(data.recording_url)
+
+
+def test_api_key_is_never_sent_to_a_presigned_url(real_event):
+    """Security: the bearer token is the *customer's* Telnyx key under BYOK.
+
+    Sending it to s3.amazonaws.com leaks their credential to a third party, and
+    S3 rejects a request carrying both a presigned signature and an
+    Authorization header, so live downloads returned 400 (verified against the
+    real URL: 400 with the key, 200 without).
+    """
+    captured = {}
+
+    def fake_get(url, headers=None, timeout=None, **kw):
+        captured["headers"] = headers or {}
+        r = MagicMock()
+        r.content = wav_bytes()
+        r.status_code = 200
+        r.raise_for_status = MagicMock()
+        return r
+
+    with patch("adapters.telnyx.builder.requests.get", side_effect=fake_get):
+        TelnyxVconBuilder(True, "wav", "super-secret-key").build(
+            TelnyxRecordingData(real_event)
+        )
+
+    assert "Authorization" not in captured["headers"], (
+        "the customer's API key was sent to a third-party host"
+    )
+
+
+def test_api_key_is_still_sent_to_telnyx_hosts():
+    assert _is_telnyx_host("https://api.telnyx.com/v2/recordings/x.wav")
+    assert not _is_telnyx_host("https://s3.amazonaws.com/x.wav")
+    assert not _is_telnyx_host("https://api.telnyx.com.evil.test/x.wav")
+
+
+def test_duration_derived_from_timestamps(real_event):
+    """The real payload has no `duration_millis`, only start/end timestamps."""
+    payload = real_event["data"]["payload"]
+    assert "duration_millis" not in payload
+    assert TelnyxRecordingData(real_event).duration_seconds == pytest.approx(19.331)
+
+
+def test_real_payload_carries_no_party_identity(real_event):
+    """Documents why CON-803 is required rather than a nice-to-have.
+
+    `call.recording.saved` has no `from`, `to`, or `direction`. Those appear
+    only on the lifecycle events, so a recording event alone cannot produce a
+    vCon that says who was on the call.
+    """
+    payload = real_event["data"]["payload"]
+    assert "from" not in payload
+    assert "to" not in payload
+    assert "direction" not in payload
+
+    data = TelnyxRecordingData(real_event)
+    assert data.from_number == ""
+    assert data.to_number == ""
