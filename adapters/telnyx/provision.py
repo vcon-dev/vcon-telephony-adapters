@@ -169,6 +169,52 @@ class TelnyxProvisioner:
         logger.info("Deleted SIPREC connector %s", name)
         return True
 
+    # -- account inspection (read-only) ------------------------------------
+
+    def list_connections(self) -> list[dict[str, Any]]:
+        """Connections in the customer's account, with their webhook URLs."""
+        return self._request("GET", "/connections").get("data", [])
+
+    def list_phone_numbers(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/phone_numbers").get("data", [])
+
+    def inspect(self) -> dict[str, Any]:
+        """Report what is in the account before we change anything.
+
+        Read-only and deliberately so. Under BYOK we act inside someone else's
+        production telephony account, and a connection carries exactly one
+        webhook URL: setting ours over a URL their own application depends on
+        breaks it silently. Every webhook strategy in CON-845 requires reading
+        first, so this is the one part that is safe to build before that
+        decision is made.
+        """
+        connections = []
+        for c in self.list_connections():
+            connections.append(
+                {
+                    "id": c.get("id"),
+                    "name": c.get("connection_name") or c.get("name"),
+                    "type": c.get("record_type"),
+                    "webhook_event_url": c.get("webhook_event_url"),
+                    "webhook_failover_url": c.get("webhook_event_failover_url"),
+                    "active": c.get("active"),
+                }
+            )
+        numbers = [
+            {
+                "number": n.get("phone_number"),
+                "connection_id": n.get("connection_id"),
+                "status": n.get("status"),
+            }
+            for n in self.list_phone_numbers()
+        ]
+        occupied = [c for c in connections if c["webhook_event_url"]]
+        return {
+            "connections": connections,
+            "phone_numbers": numbers,
+            "webhook_urls_already_set": len(occupied),
+        }
+
     # -- per-call actions --------------------------------------------------
 
     def start_siprec(
@@ -267,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Point a customer's own Telnyx account at our SIPREC SRS.",
     )
     parser.add_argument(
-        "action", choices=("check", "provision", "status", "deprovision")
+        "action", choices=("check", "inspect", "provision", "status", "deprovision")
     )
     parser.add_argument("--name", default=os.getenv("TELNYX_CONNECTOR_NAME", "vconic-smart-trunk"))
     parser.add_argument("--host", default=os.getenv("SRS_HOST"), help="Our SRS hostname or IP")
@@ -299,6 +345,25 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     "Note: media will be plain RTP. Restrict this port to Telnyx "
                     "source IPs until SRTP support lands.",
+                    file=sys.stderr,
+                )
+
+        elif args.action == "inspect":
+            report = p.inspect()
+            print(f"{len(report['connections'])} connection(s):")
+            for c in report["connections"]:
+                url = c["webhook_event_url"] or "(none)"
+                print(f"  {c['name'] or c['id']}  [{c['type']}]  webhook: {url}")
+                if c["webhook_failover_url"]:
+                    print(f"      failover: {c['webhook_failover_url']}")
+            print(f"{len(report['phone_numbers'])} phone number(s):")
+            for n in report["phone_numbers"][:20]:
+                print(f"  {n['number']}  connection={n['connection_id']}  {n['status']}")
+            if report["webhook_urls_already_set"]:
+                print(
+                    f"\nWARNING: {report['webhook_urls_already_set']} connection(s) already have a "
+                    "webhook URL set. Overwriting one breaks whatever is consuming it. "
+                    "Decide the strategy (CON-845) before provisioning.",
                     file=sys.stderr,
                 )
 
