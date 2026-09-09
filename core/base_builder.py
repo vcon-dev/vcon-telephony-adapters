@@ -13,6 +13,7 @@ from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
 
+from .lawful_basis import LawfulBasisConfig
 from .media_publisher import AudioPublisher, PublishedAudio
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ class BaseVconBuilder(ABC):
         download_recordings: bool = True,
         recording_format: str = "wav",
         publisher: AudioPublisher | None = None,
+        lawful_basis: "LawfulBasisConfig | None" = None,
     ):
         """Initialize builder.
 
@@ -113,10 +115,14 @@ class BaseVconBuilder(ABC):
                 megabytes, and some sources (Telnyx) hand back pre-signed
                 URLs that expire in minutes, so the original link is not
                 durable enough to reference.
+            lawful_basis: how this deployment justifies holding the recording.
+                When absent, no `lawful_basis` attachment is emitted and a
+                warning is logged. Never invented: see core/lawful_basis.py.
         """
         self.download_recordings = download_recordings
         self.recording_format = recording_format
         self.publisher = publisher
+        self.lawful_basis = lawful_basis
 
     @abstractmethod
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:
@@ -276,6 +282,18 @@ class BaseVconBuilder(ABC):
             # Add platform-specific tags
             for tag_name, tag_value in recording_data.platform_tags.items():
                 vcon.add_tag(tag_name, tag_value)
+
+            # Why we are entitled to hold this recording. Emitted only when a
+            # deployment configured a basis; never invented on its behalf.
+            #
+            if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+                logger.warning(
+                    "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
+                    "(consent | contract | legal_obligation | vital_interests | "
+                    "public_task | legitimate_interests) before handling real "
+                    "conversations.",
+                    vcon.uuid,
+                )
 
             logger.info(
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "

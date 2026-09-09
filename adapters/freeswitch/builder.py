@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,7 @@ class FreeSwitchVconBuilder(BaseVconBuilder):
         recordings_path: str | None = None,
         recordings_url_base: str | None = None,
         publisher: AudioPublisher | None = None,
+        lawful_basis: LawfulBasisConfig | None = None,
     ):
         """Initialize FreeSWITCH vCon builder.
 
@@ -156,7 +158,7 @@ class FreeSwitchVconBuilder(BaseVconBuilder):
             recordings_path: Base path for local recording files
             recordings_url_base: Base URL for HTTP recording access
         """
-        super().__init__(download_recordings, recording_format, publisher)
+        super().__init__(download_recordings, recording_format, publisher, lawful_basis)
         self.recordings_path = recordings_path or "/var/lib/freeswitch/recordings"
         self.recordings_url_base = recordings_url_base
 

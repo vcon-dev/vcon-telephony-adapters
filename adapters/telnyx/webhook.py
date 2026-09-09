@@ -47,11 +47,20 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             "vCon roughly 1.3x the size of the recording. Set MEDIA_BACKEND=s3 "
             "for anything beyond a lab."
         )
+    lawful_basis = config.build_lawful_basis()
+    if not lawful_basis.enabled:
+        logger.warning(
+            "LAWFUL_BASIS is unset, so vCons will carry no record of why this "
+            "deployment may hold the recording. Fine for a lab; not for real "
+            "conversations."
+        )
+
     builder = TelnyxVconBuilder(
         download_recordings=config.download_recordings,
         recording_format=config.recording_format,
         api_key=config.telnyx_api_key,
         publisher=publisher,
+        lawful_basis=lawful_basis,
     )
     poster = HttpPoster(config.conserver_url, config.get_headers(), config.ingress_lists)
     tracker = StateTracker(config.state_file)

@@ -103,6 +103,31 @@ dead audio link within ten minutes. The audio must be fetched and re-hosted
 inside that window, which also makes the fetch a hard deadline for the whole
 pipeline rather than something that can be retried tomorrow.
 
+## Lawful basis
+
+Every vCon should record why the deployment is entitled to hold the recording.
+Unset by default, and **never invented**: a fabricated consent record asserts
+something about a data subject that nobody established, which is worse than no
+record at all. Leave it unset and the attachment is absent and a warning is
+logged; it is not quietly filled in.
+
+```bash
+LAWFUL_BASIS=legitimate_interests   # or consent | contract | legal_obligation
+                                    #    | vital_interests | public_task
+LAWFUL_BASIS_PURPOSES=recording,transcription,analysis
+LAWFUL_BASIS_EXPIRATION=            # ISO 8601, or blank for indefinite
+LAWFUL_BASIS_JUSTIFICATION="Telnyx BYOK trunk; the Data Controller manages data-subject consent separately."
+```
+
+An invalid value fails at startup rather than silently producing basis-less
+vCons for a month.
+
+Which basis is correct is a legal question for the deployment, not a default we
+can pick. `legitimate_interests` suits carrier-side recording where the customer
+is the Data Controller and manages consent themselves; `consent` suits a flow
+that actually captures it per call, in which case `consentify` can detect it
+from the transcript and record proof.
+
 ## Handling the customer's key
 
 It is their key and it controls their telephony account.
