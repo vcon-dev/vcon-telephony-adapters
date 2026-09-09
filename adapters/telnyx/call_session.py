@@ -73,9 +73,7 @@ class CallSession:
     connection_id: str = ""
     last_seen: float = field(default_factory=time.monotonic)
 
-    def apply(
-        self, event_type: str, payload: dict[str, Any], occurred_at: str = ""
-    ) -> None:
+    def apply(self, event_type: str, payload: dict[str, Any], occurred_at: str = "") -> None:
         """Fold one lifecycle event in.
 
         Later events win only where they carry a value, so a field set on

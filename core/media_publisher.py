@@ -11,7 +11,6 @@ if a third consumer appears, extract it to a shared package instead of copying
 again.
 """
 
-
 import base64
 import hashlib
 import mimetypes
@@ -42,9 +41,7 @@ class PublishedAudio:
 class AudioPublisher(Protocol):
     """Storage backend used for external audio."""
 
-    def publish(
-        self, local_path: Path, object_key: str
-    ) -> PublishedAudio:
+    def publish(self, local_path: Path, object_key: str) -> PublishedAudio:
         """Persist one recording and return its external reference."""
         ...
 
@@ -79,9 +76,7 @@ class NonePublisher:
 
     def __init__(self, base_url: str):
         if not base_url:
-            raise PublishingError(
-                "media.base_url is required when publisher is none"
-            )
+            raise PublishingError("media.base_url is required when publisher is none")
         self.base_url = base_url
 
     def publish(self, local_path: Path, object_key: str) -> PublishedAudio:
@@ -96,13 +91,9 @@ class NonePublisher:
 class FilesystemPublisher:
     """Copy media to a durable filesystem destination."""
 
-    def __init__(
-        self, destination: Path, base_url: str | None = None
-    ):
+    def __init__(self, destination: Path, base_url: str | None = None):
         if not destination:
-            raise PublishingError(
-                "media.filesystem.path is required for filesystem publishing"
-            )
+            raise PublishingError("media.filesystem.path is required for filesystem publishing")
         self.destination = Path(destination).resolve()
         self.base_url = base_url
 
@@ -110,19 +101,12 @@ class FilesystemPublisher:
         source = Path(local_path)
         key = _validated_object_key(object_key)
         target = (self.destination / key).resolve()
-        if (
-            self.destination != target
-            and self.destination not in target.parents
-        ):
-            raise PublishingError(
-                f"Audio object key escapes destination: {key}"
-            )
+        if self.destination != target and self.destination not in target.parents:
+            raise PublishingError(f"Audio object key escapes destination: {key}")
 
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            fd, temporary_name = tempfile.mkstemp(
-                prefix=f".{target.name}.", dir=target.parent
-            )
+            fd, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
             os.close(fd)
             temporary_path = Path(temporary_name)
             try:
@@ -131,15 +115,9 @@ class FilesystemPublisher:
             finally:
                 temporary_path.unlink(missing_ok=True)
         except OSError as exc:
-            raise PublishingError(
-                f"Cannot publish {source} to {target}: {exc}"
-            ) from exc
+            raise PublishingError(f"Cannot publish {source} to {target}: {exc}") from exc
 
-        url = (
-            _public_url(self.base_url, key)
-            if self.base_url
-            else target.as_uri()
-        )
+        url = _public_url(self.base_url, key) if self.base_url else target.as_uri()
         return PublishedAudio(
             url=url,
             content_hash=sha512_content_hash(target),
@@ -199,9 +177,7 @@ class S3Publisher:
             import boto3
             from botocore.config import Config
         except ImportError as exc:
-            raise PublishingError(
-                "boto3 is required for S3 media publishing"
-            ) from exc
+            raise PublishingError("boto3 is required for S3 media publishing") from exc
         return boto3.client(
             "s3",
             region_name=self.region,
@@ -221,8 +197,7 @@ class S3Publisher:
             ".ogg": "audio/ogg",
         }.get(
             source.suffix.lower(),
-            mimetypes.guess_type(source.name)[0]
-            or "application/octet-stream",
+            mimetypes.guess_type(source.name)[0] or "application/octet-stream",
         )
         for attempt in range(self.retry_attempts):
             try:
@@ -237,10 +212,9 @@ class S3Publisher:
                 final_attempt = attempt + 1 >= self.retry_attempts
                 if final_attempt or not self._is_retryable(exc):
                     raise PublishingError(
-                        f"Cannot publish {source} to s3://"
-                        f"{self.bucket}/{key}: {exc}"
+                        f"Cannot publish {source} to s3://" f"{self.bucket}/{key}: {exc}"
                     ) from exc
-                self.sleep(self.backoff_factor * (2 ** attempt))
+                self.sleep(self.backoff_factor * (2**attempt))
 
         return PublishedAudio(
             url=self._object_url(key),
@@ -293,6 +267,4 @@ def create_audio_publisher(media_config) -> AudioPublisher:
             backoff_factor=media_config.s3.backoff_factor,
             base_url=media_config.base_url,
         )
-    raise PublishingError(
-        f"Unsupported media publisher: {media_config.publisher}"
-    )
+    raise PublishingError(f"Unsupported media publisher: {media_config.publisher}")

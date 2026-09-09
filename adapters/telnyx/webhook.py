@@ -117,9 +117,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         else None
     )
     if config.auto_siprec and not provisioner:
-        logger.error(
-            "TELNYX_AUTO_SIPREC is on but TELNYX_API_KEY is unset; not forking any calls"
-        )
+        logger.error("TELNYX_AUTO_SIPREC is on but TELNYX_API_KEY is unset; not forking any calls")
 
     @app.post("/webhook/call", response_class=PlainTextResponse)
     async def call_event(

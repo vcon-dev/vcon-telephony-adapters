@@ -56,8 +56,13 @@ def answered():
     return event(
         "call.answered",
         ANSWERED,
-        **{"from": FROM, "to": TO, "start_time": CALL_START, "codec": "PCMU",
-           "sampling_rate": 8000},
+        **{
+            "from": FROM,
+            "to": TO,
+            "start_time": CALL_START,
+            "codec": "PCMU",
+            "sampling_rate": 8000,
+        },
     )
 
 

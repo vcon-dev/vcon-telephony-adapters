@@ -58,7 +58,12 @@ def make(responses):
 
 
 def test_ensure_connector_creates_when_absent():
-    p, s = make([connectors(), FakeResponse(200, {"data": {"name": "st", "host": "srs.example", "port": 5060}})])
+    p, s = make(
+        [
+            connectors(),
+            FakeResponse(200, {"data": {"name": "st", "host": "srs.example", "port": 5060}}),
+        ]
+    )
 
     c = p.ensure_connector("st", "srs.example", 5060)
 
@@ -80,10 +85,12 @@ def test_ensure_connector_is_idempotent_when_already_correct():
 
 def test_ensure_connector_repoints_when_host_changed():
     """A tenant that moves droplets must not silently keep forking to the old one."""
-    p, s = make([
-        connectors({"name": "st", "host": "old.example", "port": 5060}),
-        FakeResponse(200, {"data": {"name": "st", "host": "new.example", "port": 5060}}),
-    ])
+    p, s = make(
+        [
+            connectors({"name": "st", "host": "old.example", "port": 5060}),
+            FakeResponse(200, {"data": {"name": "st", "host": "new.example", "port": 5060}}),
+        ]
+    )
 
     c = p.ensure_connector("st", "new.example", 5060)
 

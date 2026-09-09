@@ -52,9 +52,7 @@ class TelnyxConfig(BaseConfig):
             "1",
             "yes",
         )
-        self.siprec_connector_name = os.getenv(
-            "TELNYX_CONNECTOR_NAME", "vconic-smart-trunk"
-        )
+        self.siprec_connector_name = os.getenv("TELNYX_CONNECTOR_NAME", "vconic-smart-trunk")
         # Telnyx-side realtime transcription, billed per minute to the customer.
         self.transcribe_realtime = os.getenv("TELNYX_REALTIME_TRANSCRIPTION", "false").lower() in (
             "true",

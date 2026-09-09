@@ -233,13 +233,11 @@ def test_api_key_is_never_sent_to_a_presigned_url(real_event):
         return r
 
     with patch("adapters.telnyx.builder.requests.get", side_effect=fake_get):
-        TelnyxVconBuilder(True, "wav", "super-secret-key").build(
-            TelnyxRecordingData(real_event)
-        )
+        TelnyxVconBuilder(True, "wav", "super-secret-key").build(TelnyxRecordingData(real_event))
 
-    assert "Authorization" not in captured["headers"], (
-        "the customer's API key was sent to a third-party host"
-    )
+    assert (
+        "Authorization" not in captured["headers"]
+    ), "the customer's API key was sent to a third-party host"
 
 
 def test_api_key_is_still_sent_to_telnyx_hosts():
@@ -303,17 +301,13 @@ def _build(event, audio, **kwargs):
         )
 
 
-def test_publisher_replaces_inline_audio_with_url_and_hash(
-    real_event, dual_channel_wav, tmp_path
-):
+def test_publisher_replaces_inline_audio_with_url_and_hash(real_event, dual_channel_wav, tmp_path):
     from core.media_publisher import FilesystemPublisher
 
     vcon = _build(
         real_event,
         dual_channel_wav,
-        publisher=FilesystemPublisher(
-            destination=tmp_path, base_url="https://media.test/rec"
-        ),
+        publisher=FilesystemPublisher(destination=tmp_path, base_url="https://media.test/rec"),
     )
     dialog = vcon.to_dict()["dialog"][0]
 
@@ -351,14 +345,12 @@ def test_thin_vcon_is_dramatically_smaller(real_event, dual_channel_wav, tmp_pat
         dual_channel_wav,
         publisher=FilesystemPublisher(destination=tmp_path, base_url="https://m.test"),
     )
-    assert len(thin.to_json()) * 100 < len(fat.to_json()), (
-        "external media should be orders of magnitude smaller"
-    )
+    assert len(thin.to_json()) * 100 < len(
+        fat.to_json()
+    ), "external media should be orders of magnitude smaller"
 
 
-def test_s3_publisher_uploads_with_the_right_key_and_type(
-    real_event, dual_channel_wav
-):
+def test_s3_publisher_uploads_with_the_right_key_and_type(real_event, dual_channel_wav):
     """No credentials needed: S3Publisher takes an injected client."""
     from core.media_publisher import S3Publisher
 

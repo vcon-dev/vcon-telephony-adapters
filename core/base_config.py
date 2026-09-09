@@ -104,9 +104,7 @@ class BaseConfig:
 
         if backend == "filesystem":
             if not self.media_filesystem_path:
-                raise ValueError(
-                    "MEDIA_BACKEND=filesystem requires MEDIA_FILESYSTEM_PATH"
-                )
+                raise ValueError("MEDIA_BACKEND=filesystem requires MEDIA_FILESYSTEM_PATH")
             return FilesystemPublisher(
                 destination=self.media_filesystem_path,
                 base_url=self.media_base_url,
@@ -123,6 +121,4 @@ class BaseConfig:
                 base_url=self.media_base_url,
             )
 
-        raise ValueError(
-            f"Unknown MEDIA_BACKEND {backend!r}; use embed, filesystem or s3"
-        )
+        raise ValueError(f"Unknown MEDIA_BACKEND {backend!r}; use embed, filesystem or s3")

@@ -103,11 +103,15 @@ class TelnyxProvisioner:
             raise TelnyxError(self._redact(f"{method} {path} failed: {exc}")) from None
 
         if response.status_code == 401:
-            raise TelnyxError("Telnyx rejected the API key (401). Check the key and its permissions.")
+            raise TelnyxError(
+                "Telnyx rejected the API key (401). Check the key and its permissions."
+            )
         if response.status_code == 404:
             return {}
         if response.status_code >= 400:
-            raise TelnyxError(self._redact(f"{method} {path} -> {response.status_code}: {response.text[:400]}"))
+            raise TelnyxError(
+                self._redact(f"{method} {path} -> {response.status_code}: {response.text[:400]}")
+            )
 
         if not response.content:
             return {}
@@ -157,7 +161,11 @@ class TelnyxProvisioner:
         body = self._request("PATCH", f"/siprec_connectors/{name}", payload)
         logger.info(
             "Repointed SIPREC connector %s from %s:%s to %s:%s",
-            name, existing.host, existing.port, host, port,
+            name,
+            existing.host,
+            existing.port,
+            host,
+            port,
         )
         return Connector.from_api(body.get("data", payload))
 

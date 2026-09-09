@@ -262,13 +262,9 @@ class BaseVconBuilder(ABC):
                     logger.warning(
                         f"Download failed, using URL reference for {recording_data.recording_id}"
                     )
-                    dialog_kwargs["url"] = self._reference_url(
-                        recording_data.recording_url
-                    )
+                    dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
             elif recording_data.recording_url:
-                dialog_kwargs["url"] = self._reference_url(
-                    recording_data.recording_url
-                )
+                dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
 
             # Create dialog
             dialog = Dialog(**dialog_kwargs)

@@ -72,9 +72,7 @@ def command(call_control_id: str, action: str, payload: dict | None = None) -> d
 def save_event(event_type: str, body: dict) -> None:
     EVENTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%H%M%S_%f")
-    (EVENTS / f"{stamp}_{event_type.replace('.', '_')}.json").write_text(
-        json.dumps(body, indent=2)
-    )
+    (EVENTS / f"{stamp}_{event_type.replace('.', '_')}.json").write_text(json.dumps(body, indent=2))
 
 
 def probe_recording_urls(payload: dict[str, Any]) -> dict[str, Any]:
@@ -180,9 +178,7 @@ def handle_recording(body: dict, payload: dict) -> None:
 
         dest = Path(os.environ["MEDIA_FILESYSTEM_PATH"])
         dest.mkdir(parents=True, exist_ok=True)
-        publisher = FilesystemPublisher(
-            destination=dest, base_url=os.getenv("MEDIA_BASE_URL")
-        )
+        publisher = FilesystemPublisher(destination=dest, base_url=os.getenv("MEDIA_BASE_URL"))
     builder = TelnyxVconBuilder(
         download_recordings=True,
         recording_format="wav",
