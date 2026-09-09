@@ -93,7 +93,9 @@ def create_app(config: TwilioConfig) -> FastAPI:
         Configure your Twilio number's 'A CALL COMES IN' to this URL (GET or POST).
         The recording status callback is sent to /webhook/recording.
         """
-        recording_callback = config.webhook_url or str(request.base_url).rstrip("/") + "/webhook/recording"
+        recording_callback = (
+            config.webhook_url or str(request.base_url).rstrip("/") + "/webhook/recording"
+        )
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say>Please leave a message after the beep.</Say>
