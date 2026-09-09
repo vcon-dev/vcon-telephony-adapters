@@ -173,8 +173,21 @@ def handle_recording(body: dict, payload: dict) -> None:
     (OUT / "recording_url_findings.json").write_text(json.dumps(findings, indent=2))
     logger.info("recording URL findings written")
 
+    publisher = None
+    backend = os.getenv("MEDIA_BACKEND", "embed").lower()
+    if backend == "filesystem":
+        from core.media_publisher import FilesystemPublisher
+
+        dest = Path(os.environ["MEDIA_FILESYSTEM_PATH"])
+        dest.mkdir(parents=True, exist_ok=True)
+        publisher = FilesystemPublisher(
+            destination=dest, base_url=os.getenv("MEDIA_BASE_URL")
+        )
     builder = TelnyxVconBuilder(
-        download_recordings=True, recording_format="wav", api_key=KEY
+        download_recordings=True,
+        recording_format="wav",
+        api_key=KEY,
+        publisher=publisher,
     )
     vcon = builder.build(TelnyxRecordingData(body))
     if vcon is None:
@@ -189,6 +202,10 @@ def handle_recording(body: dict, payload: dict) -> None:
 
     dialog = vcon.to_dict()["dialog"][0]
     body_len = len(dialog.get("body") or "")
+    logger.info("media mode  : %s", backend)
+    logger.info("url         : %s", dialog.get("url") or "(embedded)")
+    logger.info("content_hash: %s", dialog.get("content_hash") or "(none)")
+    logger.info("vcon bytes  : %d", len(vcon.to_json()))
     logger.info("=" * 62)
     logger.info("vCon        : %s", vcon.uuid)
     logger.info("spec valid  : %s %s", valid, errors or "")

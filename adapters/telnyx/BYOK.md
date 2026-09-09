@@ -57,6 +57,28 @@ Point the customer's Telnyx webhook URL at `/webhook/call`. Auto-forking is off
 unless `TELNYX_AUTO_SIPREC` is explicitly on — forking someone's calls should not
 start happening because a variable was unset.
 
+## Party identity needs the lifecycle events
+
+`call.recording.saved` names nobody: no `from`, `to`, or `direction`. Point the
+customer's webhook at `/webhook/call` as well as `/webhook/recording` and the
+adapter correlates them by `call_session_id`.
+
+Two layers, on purpose:
+
+- **`CallSessionStore`** accumulates the lifecycle events in memory: parties,
+  direction, ring and answer timing, hangup cause, SIP headers, negotiated
+  codec, carrier MOS. A restart loses it.
+- **The recordings API** is consulted when no session is found, and returns
+  `from`, `to` and duration authoritatively. Stateless, so party identity
+  survives a restart, a dropped webhook, or a replay.
+
+Losing enrichment on a restart is acceptable. Losing party identity is not,
+which is why only the latter has a stateless fallback.
+
+Signalling detail lands in a `sip-message-trace` attachment under the
+`sip-signaling` extension, the same shape the SIPREC SRS emits, so a
+Telnyx-sourced vCon and a SIPREC-sourced one describe a call identically.
+
 ## Keep the vCons thin
 
 By default the adapter inlines audio as base64, which makes a vCon roughly 1.3x

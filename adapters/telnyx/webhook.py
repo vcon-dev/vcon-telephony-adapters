@@ -10,6 +10,7 @@ from core.poster import HttpPoster
 from core.tracker import StateTracker
 
 from .builder import TelnyxRecordingData, TelnyxVconBuilder
+from .call_session import CallSessionStore
 from .config import TelnyxConfig
 from .provision import TelnyxProvisioner, handle_call_event
 
@@ -32,6 +33,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
     )
 
     # Initialize components
+    sessions = CallSessionStore()
+    lookup = (
+        TelnyxProvisioner(config.telnyx_api_key, base_url=config.telnyx_api_url)
+        if config.telnyx_api_key
+        else None
+    )
+
     publisher = config.build_publisher()
     if publisher is None:
         logger.warning(
@@ -129,13 +137,17 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             logger.warning("Invalid Telnyx webhook signature on call event")
             raise HTTPException(status_code=403, detail="Invalid signature")
 
-        if not provisioner:
-            return "OK"
-
         try:
             event_data = await request.json()
         except Exception:
             logger.error("Failed to parse JSON body on call event")
+            return "OK"
+
+        # Always accumulate. `call.recording.saved` carries no party identity,
+        # so these events are the only in-band source of who was on the call.
+        sessions.record(event_data)
+
+        if not provisioner:
             return "OK"
 
         call_control_id = handle_call_event(
@@ -189,8 +201,23 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             logger.debug(f"Ignoring Telnyx event type: {event_type}")
             return "OK"
 
-        # Parse recording data
-        recording_data = TelnyxRecordingData(event_data)
+        # Resolve who was on the call. The recording event does not say.
+        payload = data.get("payload", {})
+        session = sessions.get(payload.get("call_session_id", ""))
+
+        recording_meta = None
+        if (session is None or not session.has_parties) and lookup:
+            # No lifecycle events for this call (a restart, a dropped webhook,
+            # a replay). The recordings API is authoritative and stateless.
+            try:
+                recording_meta = lookup.get_recording(payload.get("recording_id", ""))
+                logger.info("Resolved party identity from the recordings API")
+            except Exception as exc:
+                logger.warning("Recording lookup failed: %s", exc)
+
+        recording_data = TelnyxRecordingData(
+            event_data, session=session, recording_meta=recording_meta
+        )
         recording_id = recording_data.recording_id
 
         if not recording_id:
@@ -231,6 +258,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 to_number=recording_data.to_number,
             )
             logger.info(f"Successfully processed recording {recording_id} -> vCon {vcon.uuid}")
+            sessions.discard(payload.get("call_session_id", ""))
         else:
             tracker.mark_processed(
                 recording_id,

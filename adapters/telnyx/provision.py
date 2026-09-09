@@ -215,6 +215,17 @@ class TelnyxProvisioner:
             "webhook_urls_already_set": len(occupied),
         }
 
+    def get_recording(self, recording_id: str) -> dict[str, Any] | None:
+        """Fetch a recording's metadata.
+
+        The stateless source of party identity. `call.recording.saved` omits
+        `from`, `to` and `duration_millis`, but the recordings resource carries
+        all three, so a vCon can name its parties even when the lifecycle
+        events were missed entirely (a restart, a dropped webhook, a replay).
+        """
+        body = self._request("GET", f"/recordings/{recording_id}")
+        return body.get("data") or None
+
     # -- per-call actions --------------------------------------------------
 
     def start_siprec(
