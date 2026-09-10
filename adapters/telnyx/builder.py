@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher
 
 from .call_session import (
@@ -240,6 +241,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
         recording_format: str = "wav",
         api_key: str | None = None,
         publisher: AudioPublisher | None = None,
+        lawful_basis: LawfulBasisConfig | None = None,
     ):
         """Initialize Telnyx vCon builder.
 
@@ -248,7 +250,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             recording_format: Preferred recording format (wav or mp3)
             api_key: Telnyx API key for authenticated downloads
         """
-        super().__init__(download_recordings, recording_format, publisher)
+        super().__init__(download_recordings, recording_format, publisher, lawful_basis)
         self.api_key = api_key
 
     def build(self, recording_data: BaseRecordingData):

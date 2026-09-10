@@ -9,6 +9,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,7 @@ class AsteriskVconBuilder(BaseVconBuilder):
         ari_url: str | None = None,
         ari_auth: tuple | None = None,
         publisher: AudioPublisher | None = None,
+        lawful_basis: LawfulBasisConfig | None = None,
     ):
         """Initialize Asterisk vCon builder.
 
@@ -189,7 +191,7 @@ class AsteriskVconBuilder(BaseVconBuilder):
             ari_url: Asterisk REST Interface base URL
             ari_auth: Tuple of (username, password) for ARI auth
         """
-        super().__init__(download_recordings, recording_format, publisher)
+        super().__init__(download_recordings, recording_format, publisher, lawful_basis)
         self.recordings_path = recordings_path or "/var/spool/asterisk/recording"
         self.ari_url = ari_url
         self.ari_auth = ari_auth

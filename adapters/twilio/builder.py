@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,7 @@ class TwilioVconBuilder(BaseVconBuilder):
         recording_format: str = "wav",
         twilio_auth: tuple | None = None,
         publisher: AudioPublisher | None = None,
+        lawful_basis: LawfulBasisConfig | None = None,
     ):
         """Initialize builder.
 
@@ -163,7 +165,7 @@ class TwilioVconBuilder(BaseVconBuilder):
             recording_format: Preferred format for recordings (wav or mp3)
             twilio_auth: Tuple of (account_sid, auth_token) for Twilio API
         """
-        super().__init__(download_recordings, recording_format, publisher)
+        super().__init__(download_recordings, recording_format, publisher, lawful_basis)
         self.twilio_auth = twilio_auth
 
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:

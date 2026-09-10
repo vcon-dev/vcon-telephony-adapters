@@ -65,6 +65,22 @@ class BaseConfig:
         # Cloud Storage). Leave unset for AWS.
         self.media_s3_endpoint_url = os.getenv("MEDIA_S3_ENDPOINT_URL")
 
+        # --- Lawful basis -----------------------------------------------
+        # Why this deployment is entitled to hold the recording, per
+        # draft-howe-vcon-lawful-basis. Unset by default and deliberately so:
+        # choosing a basis on a deployment's behalf would be asserting a legal
+        # position for it, and a fabricated consent record is worse than a
+        # missing one. Unset means the attachment is absent and a warning is
+        # logged, not that a placeholder is invented.
+        self.lawful_basis = os.getenv("LAWFUL_BASIS")
+        self.lawful_basis_purposes = [
+            p.strip()
+            for p in os.getenv("LAWFUL_BASIS_PURPOSES", "recording").split(",")
+            if p.strip()
+        ]
+        self.lawful_basis_expiration = os.getenv("LAWFUL_BASIS_EXPIRATION") or None
+        self.lawful_basis_justification = os.getenv("LAWFUL_BASIS_JUSTIFICATION") or None
+
         # Recording download settings
         self.download_recordings = os.getenv("DOWNLOAD_RECORDINGS", "true").lower() in (
             "true",
@@ -122,3 +138,14 @@ class BaseConfig:
             )
 
         raise ValueError(f"Unknown MEDIA_BACKEND {backend!r}; use embed, filesystem or s3")
+
+    def build_lawful_basis(self):
+        """The configured `LawfulBasisConfig`. Disabled when LAWFUL_BASIS is unset."""
+        from .lawful_basis import LawfulBasisConfig
+
+        return LawfulBasisConfig(
+            lawful_basis=self.lawful_basis,
+            purposes=self.lawful_basis_purposes,
+            expiration=self.lawful_basis_expiration,
+            justification=self.lawful_basis_justification,
+        )

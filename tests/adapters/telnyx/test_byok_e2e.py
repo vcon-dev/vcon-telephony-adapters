@@ -148,14 +148,40 @@ def test_telnyx_identifiers_are_preserved(built_vcon):
     assert "recording_channels:dual" in tags
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CON-814: core/base_builder writes no attachments, so no adapter in "
-    "this monorepo emits a lawful_basis. Blocking for customer deployment. "
-    "When that is fixed, this passes and the marker should be removed.",
-)
-def test_vcon_carries_a_lawful_basis(built_vcon):
-    assert built_vcon.find_lawful_basis_attachments(), "no lawful_basis attachment"
+def test_vcon_has_no_lawful_basis_unless_one_is_configured(built_vcon):
+    """CON-814. Absent is the correct default, not an oversight.
+
+    A fabricated consent record asserts something about a data subject that
+    nobody established, which is worse than no record at all. So the builder
+    emits nothing and logs a warning until a deployment configures a basis.
+    """
+    assert built_vcon.find_lawful_basis_attachments() == []
+
+
+def test_configured_lawful_basis_is_emitted_and_valid(real_event, dual_channel_wav):
+    from core.lawful_basis import LawfulBasisConfig
+
+    vcon = _build(
+        real_event,
+        dual_channel_wav,
+        lawful_basis=LawfulBasisConfig(
+            lawful_basis="legitimate_interests",
+            purposes=["recording", "transcription"],
+        ),
+    )
+
+    found = vcon.find_lawful_basis_attachments()
+    assert len(found) == 1
+    assert "lawful_basis" in vcon.to_dict()["extensions"]
+    assert vcon.is_valid()[0]
+
+    body = found[0]["body"]
+    assert body["lawful_basis"] == "legitimate_interests"
+    assert [g["purpose"] for g in body["purpose_grants"]] == [
+        "recording",
+        "transcription",
+    ]
+    assert all(g["granted"] for g in body["purpose_grants"])
 
 
 # -- through the webhook ---------------------------------------------------
