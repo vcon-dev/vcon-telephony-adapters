@@ -57,9 +57,59 @@ unset. With it off, `create_app` never builds the provisioner (`webhook.py:123`)
 so `/webhook/call` accumulates session state and returns, and nothing touches the
 media path.
 
-The API key is still required, for two things that are not forking: downloading
-the recording audio, and the authoritative party-identity lookup described below
-(`webhook.py:37`).
+The API key is still required, but **only for `api.telnyx.com`**: the authoritative
+party-identity lookup described below (`webhook.py:37`). It must never reach the
+recording URL itself. See "The key does not go to the recording URL".
+
+## What a live call established
+
+Two PSTN calls on 2026-09-09 proved the loop end to end and answered the questions
+CON-844 was opened to ask. The payload facts below are measured, not read off the
+docs, and several of them contradicted the docs.
+
+| Question | Answer |
+|---|---|
+| Recording URL lifetime | Pre-signed, **600 seconds** |
+| Does the fetch need the API key? | **No, and sending it breaks the fetch.** See below. |
+| Format | `audio/wav`, dual channel (596,524 bytes on the test call) |
+| Does `call.recording.saved` name the parties? | No. `from`, `to` and `direction` are all absent. |
+
+### The key does not go to the recording URL
+
+Recording URLs are pre-signed S3, not Telnyx-hosted. The builder used to attach
+`Authorization: Bearer` to every download, which was two bugs in one line:
+
+| Request | Result |
+|---|---|
+| With the key | **400**, S3 error XML |
+| Without the key | **200**, `audio/wav`, 596,524 bytes |
+
+S3 rejects a request carrying both a pre-signed signature and an Authorization
+header, so every Telnyx recording download was failing. And under BYOK that token is
+the customer's key, so it was being handed to `s3.amazonaws.com`.
+
+Fixed by allowlisting the host: the header is attached only when the URL is on
+`api.telnyx.com` (`builder.py:328`, `TELNYX_API_HOSTS`). Do not widen that allowlist
+without re-reading this section.
+
+### Two payload fields that do not mean what they look like
+
+- **`duration_millis` does not exist** on the webhook payload. It carries
+  `recording_started_at` and `recording_ended_at`, and duration is derived from them.
+  Before this was found, duration was `None` on every call.
+- **`payload.start_time` is overloaded.** It means *call* start on lifecycle events
+  and *recording* start on the recording event, so folding one into the other produces
+  a call that started after it was answered. The real answer time is the envelope's
+  `occurred_at`. `payload.start_time` is byte-identical across `initiated`, `answered`
+  and `hangup`, so it cannot be an answer time, and using it made ring duration always
+  zero.
+
+### Still open after those calls
+
+The download fix is verified live (200, 596,524 bytes). The **re-hosting publish path
+is not**: it was verified against the real captured payload but with synthetic audio,
+because the pre-signed URL expired before it could be re-fetched. One more call closes
+that gap.
 
 ## Party identity needs the lifecycle events
 
@@ -101,6 +151,10 @@ MEDIA_BASE_URL=https://vconic-media.nyc3.digitaloceanspaces.com
 `MEDIA_BACKEND=filesystem` with `MEDIA_FILESYSTEM_PATH` is the local equivalent.
 S3 needs `boto3`, which is not a base dependency.
 
+Measured on real Telnyx audio: a 575,404-byte dual-channel WAV went from an
+811,574-byte vCon to **1,009 bytes**, an 804x reduction, with the `content_hash`
+recomputed from the re-hosted file and matching, and `is_valid()` true.
+
 **Re-hosting is not optional for Telnyx.** Recording URLs are pre-signed and
 expire in 600 seconds, so a vCon that references the Telnyx URL directly has a
 dead audio link within ten minutes. The audio must be fetched and re-hosted inside
@@ -139,10 +193,16 @@ numbers, and spend their money.
 
 - Never logged. Redacted from every error this module raises (there is a test).
 - Never written to disk by this code.
-- On the API path the calls we make with it are exactly: fetch a recording, and
-  read recording metadata. On the parked SIPREC path, add list/create/update/delete
-  a SIPREC connector, `siprec_start`, `siprec_stop`, and optionally
-  `transcription_start`.
+- Sent only to `api.telnyx.com`, never to a pre-signed media URL (`builder.py:328`).
+- On the API path the calls we make with it are exactly: read recording metadata. On
+  the parked SIPREC path, add list/create/update/delete a SIPREC connector,
+  `siprec_start`, `siprec_stop`, and optionally `transcription_start`.
+
+**Telnyx API keys are not scoped.** A key handed to us reads numbers, applications,
+connections, profiles, recordings and account balance. BYOK on Telnyx therefore means
+asking a customer for full control of their telephony account, and the signup flow has
+to say so in those words rather than implying a read-only recordings token. See CON-809
+and CON-847.
 
 ## Not built yet on the API path
 
@@ -212,9 +272,12 @@ This is a pilot-grade compromise, not a shippable posture for a compliance produ
 
 ## Status
 
-Verified against a mock Telnyx (unit tests plus an end-to-end CLI run).
-**Not yet verified against the live Telnyx API.** On the SIPREC path, the
-`PATCH`/`DELETE` addressing of connectors by *name* rather than id is the most
-likely thing to be wrong on first contact. On the API path, the thing to confirm
-first is what `call.recording.saved` actually delivers: URL lifetime, whether the
-fetch needs the API key, and audio format (CON-844).
+**The API path is verified against live Telnyx.** Two PSTN calls on 2026-09-09
+produced spec-valid vCons from real audio, and the findings are in "What a live call
+established" above. The one remaining gap on that path is the re-hosting publish step,
+which has been exercised only with synthetic audio.
+
+**The SIPREC path is verified only against a mock** (unit tests plus an end-to-end CLI
+run). Its request shapes come from the published docs, and the `PATCH`/`DELETE`
+addressing of connectors by *name* rather than id is the most likely thing to be wrong
+on first contact. Since the path is parked, nobody has found out.
