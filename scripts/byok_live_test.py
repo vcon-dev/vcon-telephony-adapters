@@ -7,14 +7,21 @@ records the unknowns CON-844 asks about.
 Flow:
 
     call.initiated   -> answer
-    call.answered    -> record_start, then speak a short prompt
-    call.speak.ended -> hangup
+    call.answered    -> record_start, then speak a short announcement
+    (the caller talks, then hangs up)
     call.recording.saved -> download, build a vCon, validate, save
+
+The caller ends the call, not the rig. `--max-seconds` bounds the recording so a
+forgotten call cannot run up a bill.
+
+Set `LAWFUL_BASIS` or the vCon carries no record of why the recording may be
+held. It is never invented: unset means absent plus a warning.
 
 Everything Telnyx sends is written to `out/events/` verbatim, because the point
 of the exercise is to learn the real payload shapes rather than trust the docs.
 
-    TELNYX_API_KEY=... python scripts/byok_live_test.py --port 8080
+    TELNYX_API_KEY=... LAWFUL_BASIS=legitimate_interests \
+        python scripts/byok_live_test.py --port 8080
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from fastapi.responses import PlainTextResponse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from adapters.telnyx.builder import TelnyxRecordingData, TelnyxVconBuilder  # noqa: E402
+from core.lawful_basis import LawfulBasisConfig  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("byok")
@@ -46,11 +54,18 @@ KEY = os.getenv("TELNYX_API_KEY", "")
 OUT = Path(__file__).resolve().parent.parent / "out"
 EVENTS = OUT / "events"
 
-SPOKEN = (
-    "This is a V conic bring your own key test call. "
-    "The quick brown fox jumps over the lazy dog. "
-    "Recording should now be saved and turned into a V con."
+SPOKEN = os.getenv(
+    "BYOK_ANNOUNCEMENT",
+    "This call is being recorded. Please speak after the tone, " "and hang up when you are done.",
 )
+
+# Ceiling on the recording, in seconds. The caller decides when the call ends,
+# so this is the only thing standing between a forgotten handset and a bill.
+MAX_SECONDS = int(os.getenv("BYOK_MAX_SECONDS", "120"))
+
+# Built in main() so an invalid LAWFUL_BASIS fails at startup rather than after
+# someone has already placed the call.
+LAWFUL: LawfulBasisConfig | None = None
 
 
 def command(call_control_id: str, action: str, payload: dict | None = None) -> dict:
@@ -143,7 +158,11 @@ def build_app() -> FastAPI:
                 command(ccid, "answer")
 
         elif event_type == "call.answered":
-            command(ccid, "record_start", {"format": "wav", "channels": "dual"})
+            command(
+                ccid,
+                "record_start",
+                {"format": "wav", "channels": "dual", "max_length": MAX_SECONDS},
+            )
             time.sleep(0.5)
             command(
                 ccid,
@@ -152,7 +171,13 @@ def build_app() -> FastAPI:
             )
 
         elif event_type == "call.speak.ended":
-            command(ccid, "hangup")
+            # Deliberately no hangup. The caller ends the call, which is the
+            # whole point of a demo where a person talks. `max_length` on the
+            # recording is the cost ceiling.
+            logger.info("   announcement done; recording until the caller hangs up")
+
+        elif event_type == "call.hangup":
+            logger.info("   caller hung up (%s)", payload.get("hangup_cause", "?"))
 
         elif event_type in ("call.recording.saved", "recording.saved"):
             state["recording_seen"] = True
@@ -184,6 +209,7 @@ def handle_recording(body: dict, payload: dict) -> None:
         recording_format="wav",
         api_key=KEY,
         publisher=publisher,
+        lawful_basis=LAWFUL,
     )
     vcon = builder.build(TelnyxRecordingData(body))
     if vcon is None:
@@ -209,7 +235,10 @@ def handle_recording(body: dict, payload: dict) -> None:
     logger.info("mediatype   : %s", dialog.get("mediatype"))
     logger.info("duration    : %s", dialog.get("duration"))
     logger.info("audio       : %d base64 chars", body_len)
-    logger.info("lawful_basis: %s", basis or "ABSENT (CON-814)")
+    logger.info(
+        "lawful_basis: %s",
+        basis or "ABSENT — set LAWFUL_BASIS; it is never invented",
+    )
     logger.info("saved       : %s", path)
     logger.info("=" * 62)
 
@@ -218,11 +247,41 @@ def main() -> int:
     if not KEY:
         print("TELNYX_API_KEY is not set", file=sys.stderr)
         return 2
+    global MAX_SECONDS, LAWFUL
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument(
+        "--max-seconds",
+        type=int,
+        default=MAX_SECONDS,
+        help="recording ceiling; the caller normally hangs up first",
+    )
     args = ap.parse_args()
+    MAX_SECONDS = args.max_seconds
+
+    # Raises on an invalid basis, here rather than mid-call.
+    LAWFUL = LawfulBasisConfig(
+        lawful_basis=os.getenv("LAWFUL_BASIS"),
+        purposes=[
+            p.strip()
+            for p in os.getenv("LAWFUL_BASIS_PURPOSES", "recording").split(",")
+            if p.strip()
+        ],
+        expiration=os.getenv("LAWFUL_BASIS_EXPIRATION") or None,
+        justification=os.getenv("LAWFUL_BASIS_JUSTIFICATION") or None,
+    )
+    if LAWFUL.enabled:
+        logger.info("lawful basis: %s for %s", LAWFUL.lawful_basis, LAWFUL.purposes)
+    else:
+        logger.warning(
+            "LAWFUL_BASIS is unset, so the vCon will carry no record of why "
+            "this recording may be held. Fine for a lab call; do not demo it."
+        )
+
     OUT.mkdir(parents=True, exist_ok=True)
-    logger.info("listening on :%d, writing to %s", args.port, OUT)
+    logger.info("listening on :%d, recording ceiling %ds", args.port, MAX_SECONDS)
+    logger.info("writing to %s", OUT)
     uvicorn.run(build_app(), host="0.0.0.0", port=args.port, log_level="warning")
     return 0
 
