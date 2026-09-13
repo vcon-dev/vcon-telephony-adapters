@@ -215,6 +215,10 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             logger.error(f"Failed to parse JSON body: {e}")
             raise HTTPException(status_code=400, detail="Invalid JSON") from None
 
+        return await _process_recording_event(event_data)
+
+    async def _process_recording_event(event_data: dict) -> str:
+        """Shared by the Call Control JSON webhook and the TeXML form callback."""
         # Check event type
         data = event_data.get("data", event_data)
         event_type = data.get("event_type", "")
@@ -294,6 +298,45 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             logger.error(f"Failed to post vCon {vcon.uuid} for recording {recording_id}")
 
         return "OK"
+
+    @app.post("/webhook/texml-recording", response_class=PlainTextResponse)
+    async def texml_recording_event(request: Request):
+        """TeXML `recordingStatusCallback` (form-encoded, path B of the smart trunk).
+
+        Reshaped into the Call Control `call.recording.saved` payload so one
+        builder serves both. Measured fields, 2026-09-13: RecordingSid,
+        CallSessionId, RecordingUrl (pre-signed S3 mp3, 600 s), RecordingChannels
+        "1"|"2", RecordingStartTime/EndTime, From, To, Direction, ConnectionId.
+        Unlike Call Control webhooks these carry From and To, so no lookup is needed.
+
+        ponytail: no signature check here. TeXML callbacks are not ed25519 signed the
+        way Call Control webhooks are; gate this path with a per-tenant token in the
+        URL when the multi-tenant hook lands (CON-846).
+        """
+        form = await request.form()
+        f = {k: str(v) for k, v in form.items()}
+        if f.get("RecordingStatus", "completed") != "completed" or not f.get("RecordingUrl"):
+            return "OK"
+        url = f["RecordingUrl"]
+        ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+        direction = {"inbound": "incoming", "outbound": "outgoing"}.get(f.get("Direction", "").lower(), "")
+        payload = {
+            "recording_id": f.get("RecordingSid", ""),
+            "call_session_id": f.get("CallSessionId", ""),
+            "call_control_id": f.get("CallSid", ""),
+            "connection_id": f.get("ConnectionId", ""),
+            "recording_urls": {ext if ext in ("mp3", "wav") else "mp3": url},
+            "channels": "dual" if f.get("RecordingChannels") == "2" else "single",
+            "recording_started_at": f.get("RecordingStartTime"),
+            "recording_ended_at": f.get("RecordingEndTime"),
+            "from": f.get("From", ""),
+            "to": f.get("To", ""),
+            "direction": direction,
+            "recording_source": f.get("RecordingSource", "texml"),
+        }
+        event_data = {"data": {"event_type": "call.recording.saved", "record_type": "event",
+                               "occurred_at": f.get("RecordingEndTime"), "payload": payload}}
+        return await _process_recording_event(event_data)
 
     @app.get("/status/{recording_id}")
     async def get_recording_status(recording_id: str):
