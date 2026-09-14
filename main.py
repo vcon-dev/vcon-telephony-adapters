@@ -2,12 +2,15 @@
 """Main entry point for vCon telephony adapters.
 
 Supports running individual adapters via command line argument:
-    python main.py twilio      # Run Twilio adapter
-    python main.py freeswitch  # Run FreeSWITCH adapter
-    python main.py asterisk    # Run Asterisk adapter
-    python main.py telnyx      # Run Telnyx adapter
-    python main.py bandwidth   # Run Bandwidth adapter
-    python main.py             # Default: Run Twilio adapter
+    python main.py twilio       # Twilio webhook adapter
+    python main.py freeswitch   # FreeSWITCH webhook adapter
+    python main.py asterisk     # Asterisk webhook adapter
+    python main.py telnyx       # Telnyx webhook adapter
+    python main.py bandwidth    # Bandwidth webhook adapter
+    python main.py signalwire   # SignalWire API poller (long-running)
+    python main.py elevenlabs   # ElevenLabs API poller (long-running)
+    python main.py vapi         # VAPI webhook adapter
+    python main.py              # Default: Twilio
 """
 
 import logging
@@ -158,6 +161,55 @@ def run_bandwidth_adapter():
     uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
 
 
+def run_signalwire_adapter():
+    """Run the SignalWire poller (long-running)."""
+    from adapters.signalwire import SignalWireConfig, SignalWirePoller
+
+    config = SignalWireConfig.from_env()
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon SignalWire Poller...")
+    logger.info(f"Webhook URL: {config.webhook_url}")
+    logger.info(f"Poll interval: {config.poll_interval_seconds}s")
+    logger.info(f"S3 enabled: {config.s3_enabled}")
+
+    SignalWirePoller(config).run()
+
+
+def run_elevenlabs_adapter():
+    """Run the ElevenLabs poller (long-running)."""
+    from adapters.elevenlabs import ElevenLabsConfig, ElevenLabsPoller
+
+    config = ElevenLabsConfig.from_env()
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon ElevenLabs Poller...")
+    logger.info(f"Webhook URL: {config.webhook_url}")
+    logger.info(f"Poll interval: {config.poll_interval_seconds}s")
+
+    ElevenLabsPoller(config).run()
+
+
+def run_vapi_adapter():
+    """Run the VAPI webhook server."""
+    from adapters.vapi import VapiConfig, create_app
+
+    config = VapiConfig.from_env()
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon VAPI Adapter...")
+    logger.info(f"Webhook URL: {config.webhook_url}")
+
+    app = create_app(config)
+    port = int(__import__("os").environ.get("PORT", "8080"))
+    host = __import__("os").environ.get("HOST", "0.0.0.0")
+    logger.info(f"Starting server on {host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level=config.log_level.lower())
+
+
 # Registry of available adapters
 ADAPTERS = {
     "twilio": run_twilio_adapter,
@@ -165,6 +217,11 @@ ADAPTERS = {
     "asterisk": run_asterisk_adapter,
     "telnyx": run_telnyx_adapter,
     "bandwidth": run_bandwidth_adapter,
+    "signalwire": run_signalwire_adapter,
+    "elevenlabs": run_elevenlabs_adapter,
+    "vapi": run_vapi_adapter,
+    # pipecat is not a standalone process — it's a frame processor inside your
+    # own Pipecat pipeline. See adapters/pipecat/README.md.
 }
 
 
