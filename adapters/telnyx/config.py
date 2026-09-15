@@ -59,6 +59,18 @@ class TelnyxConfig(BaseConfig):
             "1",
             "yes",
         )
+        # Smart trunk live layer: stream every answered call to the vcon-realtime
+        # bridge over a WebSocket. Sibling of auto_siprec. Telnyx allows only one
+        # stream-or-fork per call, so enable one or the other, not both. Off by
+        # default for the same reason forking is. stream_url is the bridge's public
+        # wss endpoint (e.g. wss://host/telnyx/media).
+        self.auto_stream = os.getenv("TELNYX_AUTO_STREAM", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self.stream_url = os.getenv("TELNYX_STREAM_URL", "")
+        self.stream_track = os.getenv("TELNYX_STREAM_TRACK", "both_tracks")
 
     def get_api_headers(self) -> dict:
         """Get headers for Telnyx API requests.
