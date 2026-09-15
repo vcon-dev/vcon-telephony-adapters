@@ -66,3 +66,5 @@ Thumbs.db
 
 # live BYOK test output (real call audio, presigned URLs)
 out/
+
+.omc/
