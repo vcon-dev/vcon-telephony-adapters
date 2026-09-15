@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import array
+import asyncio
 import base64
 import json
 import logging
@@ -102,13 +103,16 @@ def save_event(kind: str, body: dict) -> None:
 
 
 def streaming_start_payload() -> dict:
-    """Best-guess streaming_start body; STREAM_EXTRA overrides any field."""
-    payload = {
-        "stream_url": PUBLIC_WSS,
-        "stream_track": STREAM_TRACK,
-        "stream_codec": STREAM_CODEC,
-        "stream_sample_rate": STREAM_RATE,
-    }
+    """streaming_start body. Minimal by default (stream_url + stream_track, which
+    lets Telnyx pick its default codec) because a 90046 "failed to connect" can be
+    the media worker choking on codec params, not a real transport failure. Codec
+    and sample rate are added only when explicitly set, so the exact param names
+    stay a thing the spike verifies rather than assumes."""
+    payload = {"stream_url": PUBLIC_WSS, "stream_track": STREAM_TRACK}
+    if os.getenv("TELNYX_STREAM_CODEC"):
+        payload["stream_codec"] = STREAM_CODEC
+    if os.getenv("TELNYX_STREAM_SAMPLE_RATE"):
+        payload["stream_sample_rate"] = STREAM_RATE
     payload.update(STREAM_EXTRA)
     return payload
 
@@ -176,10 +180,14 @@ def build_app() -> FastAPI:
                 command(ccid, "answer")
 
         elif event_type == "call.answered":
+            # command() is a blocking requests.post; run it off the event loop or
+            # streaming_start's multi-second call freezes the loop and the /media
+            # WS upgrade Telnyx opens during that window never gets accepted in
+            # time -> Telnyx times out with 90046 while the socket lands late.
             if not NO_RECORD:
-                command(ccid, "record_start",
-                        {"format": "wav", "channels": "dual", "max_length": MAX_SECONDS})
-            sc, _ = command(ccid, "streaming_start", streaming_start_payload())
+                await asyncio.to_thread(command, ccid, "record_start",
+                                        {"format": "wav", "channels": "dual", "max_length": MAX_SECONDS})
+            sc, _ = await asyncio.to_thread(command, ccid, "streaming_start", streaming_start_payload())
             state["stream_started_ok"] = sc < 400
             if sc >= 400:
                 logger.error("streaming_start rejected; adjust TELNYX_STREAM_* / TELNYX_STREAM_EXTRA")
