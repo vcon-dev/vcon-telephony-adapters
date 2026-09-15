@@ -200,3 +200,39 @@ def test_accepts_flat_payload_shape():
     event = {"event_type": "call.answered", "payload": {"call_control_id": "flat-1"}}
 
     assert handle_call_event(event, p, "st") == "flat-1"
+
+
+# -- streaming (live layer, step 2) ----------------------------------------
+
+
+def test_start_streaming_sends_expected_body():
+    p, s = make([FakeResponse(200, {"data": {}})])
+
+    p.start_streaming("ccid-1", "wss://host/telnyx/media")
+
+    assert s.calls[0]["url"].endswith("/calls/ccid-1/actions/streaming_start")
+    # No codec hints: the spike proved Telnyx ignores them and streams PCMU 8k.
+    assert s.calls[0]["json"] == {
+        "stream_url": "wss://host/telnyx/media",
+        "stream_track": "both_tracks",
+    }
+
+
+def test_streams_on_answered_when_stream_url_is_given():
+    p, s = make([FakeResponse(200, {"data": {}})])
+    assert handle_call_event(answered(), p, stream_url="wss://host/telnyx/media") == "ccid-1"
+    assert s.calls[0]["url"].endswith("/actions/streaming_start")
+
+
+def test_fork_wins_and_stream_is_skipped_when_both_are_given():
+    # Telnyx allows one stream-or-fork per call; the fork wins, the stream is skipped.
+    p, s = make([FakeResponse(200, {"data": {}})])
+    assert handle_call_event(answered(), p, "st", stream_url="wss://host/telnyx/media") == "ccid-1"
+    assert len(s.calls) == 1
+    assert s.calls[0]["url"].endswith("/actions/siprec_start")
+
+
+def test_does_nothing_when_neither_fork_nor_stream_is_configured():
+    p, s = make([])
+    assert handle_call_event(answered(), p) is None
+    assert s.calls == []

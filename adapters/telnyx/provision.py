@@ -257,6 +257,28 @@ class TelnyxProvisioner:
     def stop_siprec(self, call_control_id: str) -> dict:
         return self._request("POST", f"/calls/{call_control_id}/actions/siprec_stop", {})
 
+    def start_streaming(
+        self,
+        call_control_id: str,
+        stream_url: str,
+        track: str = "both_tracks",
+    ) -> dict:
+        """Stream this call's media to a WebSocket (the vcon-realtime bridge).
+
+        The 2026-09-15 spike confirmed Telnyx delivers PCMU 8 kHz here whatever
+        codec is requested, so no codec hints are sent; the bridge decodes and
+        resamples. Telnyx allows one stream-or-fork per call, so this is an
+        alternative to start_siprec on the same call, not an addition.
+        """
+        return self._request(
+            "POST",
+            f"/calls/{call_control_id}/actions/streaming_start",
+            {"stream_url": stream_url, "stream_track": track},
+        )
+
+    def stop_streaming(self, call_control_id: str) -> dict:
+        return self._request("POST", f"/calls/{call_control_id}/actions/streaming_stop", {})
+
     def start_transcription(
         self,
         call_control_id: str,
@@ -288,16 +310,20 @@ class TelnyxProvisioner:
 def handle_call_event(
     event: dict[str, Any],
     provisioner: TelnyxProvisioner,
-    connector_name: str,
+    connector_name: str | None = None,
     transcribe: bool = False,
+    stream_url: str | None = None,
+    stream_track: str = "both_tracks",
 ) -> str | None:
-    """Start a fork if this webhook is a call we should be recording.
+    """Start capture on an answered call: a SIPREC fork, a media stream, or both.
 
-    Returns the ``call_control_id`` we acted on, or None if the event was not one
-    we fork on. Pure enough to test without a server.
+    ``connector_name`` forks to our SRS; ``stream_url`` streams to the vcon-realtime
+    bridge. Telnyx allows only one stream-or-fork per call, so pass one, not both;
+    if both are given the fork wins and the stream is skipped. Returns the
+    ``call_control_id`` we acted on, or None. Pure enough to test without a server.
 
     A failure here must not break the call: the customer's call completes whether
-    or not we manage to record it. That asymmetry is the whole reason we stay out
+    or not we manage to capture it. That asymmetry is the whole reason we stay out
     of the media path, so this swallows errors rather than propagating them.
     """
     payload = event.get("data", event).get("payload", {})
@@ -311,16 +337,24 @@ def handle_call_event(
         logger.warning("Telnyx %s event carried no call_control_id", event_type)
         return None
 
+    acted = False
     try:
-        provisioner.start_siprec(call_control_id, connector_name)
+        if connector_name:
+            provisioner.start_siprec(call_control_id, connector_name)
+            acted = True
+        elif stream_url:
+            # Only when not forking: one stream-or-fork slot per call on Telnyx.
+            provisioner.start_streaming(call_control_id, stream_url, stream_track)
+            acted = True
         if transcribe:
             provisioner.start_transcription(call_control_id)
+            acted = True
     except TelnyxError as exc:
-        # Losing a recording is recoverable. Breaking a call is not.
-        logger.error("Could not start SIPREC on call %s: %s", call_control_id, exc)
+        # Losing capture is recoverable. Breaking a call is not.
+        logger.error("Could not start capture on call %s: %s", call_control_id, exc)
         return None
 
-    return call_control_id
+    return call_control_id if acted else None
 
 
 # -- CLI -------------------------------------------------------------------

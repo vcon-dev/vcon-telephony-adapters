@@ -1,5 +1,6 @@
 """FastAPI webhook receiver for Telnyx recording events."""
 
+import asyncio
 import base64
 import logging
 
@@ -118,15 +119,24 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             logger.warning(f"Signature validation error: {e}")
             return False
 
-    # Smart trunk: fork every answered call to our SRS using the customer's
+    # Smart trunk: on every answered call, either fork to our SRS (auto_siprec)
+    # or stream to the vcon-realtime bridge (auto_stream), using the customer's
     # own Telnyx key. Only mounted when explicitly enabled and keyed.
+    capture_on = config.auto_siprec or config.auto_stream
     provisioner = (
         TelnyxProvisioner(config.telnyx_api_key, base_url=config.telnyx_api_url)
-        if config.auto_siprec and config.telnyx_api_key
+        if capture_on and config.telnyx_api_key
         else None
     )
-    if config.auto_siprec and not provisioner:
-        logger.error("TELNYX_AUTO_SIPREC is on but TELNYX_API_KEY is unset; not forking any calls")
+    if capture_on and not provisioner:
+        logger.error("TELNYX_AUTO_SIPREC/STREAM is on but TELNYX_API_KEY is unset; capturing nothing")
+    if config.auto_stream and not config.stream_url:
+        logger.error("TELNYX_AUTO_STREAM is on but TELNYX_STREAM_URL is unset; not streaming any calls")
+    if config.auto_siprec and config.auto_stream:
+        logger.warning(
+            "Both TELNYX_AUTO_SIPREC and TELNYX_AUTO_STREAM are on; Telnyx allows one "
+            "stream-or-fork per call, so the fork wins and the stream is skipped"
+        )
 
     @app.post("/webhook/call", response_class=PlainTextResponse)
     async def call_event(
@@ -157,14 +167,20 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         if not provisioner:
             return "OK"
 
-        call_control_id = handle_call_event(
+        # Run the capture start off the event loop: it is a blocking Telnyx API
+        # call, and the 2026-09-15 spike showed a sync call inside an async handler
+        # freezes the loop for its whole duration.
+        call_control_id = await asyncio.to_thread(
+            handle_call_event,
             event_data,
             provisioner,
-            config.siprec_connector_name,
-            transcribe=config.transcribe_realtime,
+            config.siprec_connector_name if config.auto_siprec else None,
+            config.transcribe_realtime,
+            config.stream_url if config.auto_stream else None,
+            config.stream_track,
         )
         if call_control_id:
-            logger.info("Started SIPREC fork on call %s", call_control_id)
+            logger.info("Started capture on call %s", call_control_id)
 
         return "OK"
 
