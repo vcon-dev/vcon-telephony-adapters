@@ -129,9 +129,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         else None
     )
     if capture_on and not provisioner:
-        logger.error("TELNYX_AUTO_SIPREC/STREAM is on but TELNYX_API_KEY is unset; capturing nothing")
+        logger.error(
+            "TELNYX_AUTO_SIPREC/STREAM is on but TELNYX_API_KEY is unset; capturing nothing"
+        )
     if config.auto_stream and not config.stream_url:
-        logger.error("TELNYX_AUTO_STREAM is on but TELNYX_STREAM_URL is unset; not streaming any calls")
+        logger.error(
+            "TELNYX_AUTO_STREAM is on but TELNYX_STREAM_URL is unset; not streaming any calls"
+        )
     if config.auto_siprec and config.auto_stream:
         logger.warning(
             "Both TELNYX_AUTO_SIPREC and TELNYX_AUTO_STREAM are on; Telnyx allows one "
@@ -319,7 +323,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             return "OK"
         url = f["RecordingUrl"]
         ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
-        direction = {"inbound": "incoming", "outbound": "outgoing"}.get(f.get("Direction", "").lower(), "")
+        direction = {"inbound": "incoming", "outbound": "outgoing"}.get(
+            f.get("Direction", "").lower(), ""
+        )
         payload = {
             "recording_id": f.get("RecordingSid", ""),
             "call_session_id": f.get("CallSessionId", ""),
@@ -334,8 +340,14 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             "direction": direction,
             "recording_source": f.get("RecordingSource", "texml"),
         }
-        event_data = {"data": {"event_type": "call.recording.saved", "record_type": "event",
-                               "occurred_at": f.get("RecordingEndTime"), "payload": payload}}
+        event_data = {
+            "data": {
+                "event_type": "call.recording.saved",
+                "record_type": "event",
+                "occurred_at": f.get("RecordingEndTime"),
+                "payload": payload,
+            }
+        }
         return await _process_recording_event(event_data)
 
     @app.get("/status/{recording_id}")

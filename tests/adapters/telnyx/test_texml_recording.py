@@ -46,8 +46,12 @@ def test_texml_callback_is_reshaped_and_built(config):
         patch("adapters.telnyx.webhook.TelnyxVconBuilder") as builder_cls,
     ):
         vcon = MagicMock(uuid="vcon-1")
-        builder = MagicMock(); builder.build.return_value = vcon; builder_cls.return_value = builder
-        poster = MagicMock(); poster.post.return_value = True; poster_cls.return_value = poster
+        builder = MagicMock()
+        builder.build.return_value = vcon
+        builder_cls.return_value = builder
+        poster = MagicMock()
+        poster.post.return_value = True
+        poster_cls.return_value = poster
 
         client = TestClient(create_app(config))
         r = client.post("/webhook/texml-recording", data=TEXML_FORM)
@@ -73,6 +77,8 @@ def test_texml_callback_is_reshaped_and_built(config):
 def test_texml_callback_ignores_non_completed(config):
     with patch("adapters.telnyx.webhook.TelnyxVconBuilder") as builder_cls:
         client = TestClient(create_app(config))
-        r = client.post("/webhook/texml-recording", data={**TEXML_FORM, "RecordingStatus": "in-progress"})
+        r = client.post(
+            "/webhook/texml-recording", data={**TEXML_FORM, "RecordingStatus": "in-progress"}
+        )
         assert r.text == "OK"
         builder_cls.return_value.build.assert_not_called()

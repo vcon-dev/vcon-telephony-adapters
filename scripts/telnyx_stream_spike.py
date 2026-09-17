@@ -153,7 +153,7 @@ def build_app() -> FastAPI:
         "recording_saved": False,
         "stream_started_ok": None,
         "media_format": None,
-        "frames": {},          # track -> bytearray
+        "frames": {},  # track -> bytearray
         "start_seen": False,
     }
 
@@ -185,21 +185,29 @@ def build_app() -> FastAPI:
             # WS upgrade Telnyx opens during that window never gets accepted in
             # time -> Telnyx times out with 90046 while the socket lands late.
             if not NO_RECORD:
-                await asyncio.to_thread(command, ccid, "record_start",
-                                        {"format": "wav", "channels": "dual", "max_length": MAX_SECONDS})
-            sc, _ = await asyncio.to_thread(command, ccid, "streaming_start", streaming_start_payload())
+                await asyncio.to_thread(
+                    command,
+                    ccid,
+                    "record_start",
+                    {"format": "wav", "channels": "dual", "max_length": MAX_SECONDS},
+                )
+            sc, _ = await asyncio.to_thread(
+                command, ccid, "streaming_start", streaming_start_payload()
+            )
             state["stream_started_ok"] = sc < 400
             if sc >= 400:
-                logger.error("streaming_start rejected; adjust TELNYX_STREAM_* / TELNYX_STREAM_EXTRA")
+                logger.error(
+                    "streaming_start rejected; adjust TELNYX_STREAM_* / TELNYX_STREAM_EXTRA"
+                )
             if TRY_SIPREC and SIPREC_CONNECTOR:
-                threading.Timer(
-                    SIPREC_DELAY, _start_siprec, args=(ccid,)
-                ).start()
+                threading.Timer(SIPREC_DELAY, _start_siprec, args=(ccid,)).start()
 
         elif event_type in ("call.recording.saved", "recording.saved"):
             state["recording_saved"] = True
-            logger.info("   RECORDING SAVED while streaming=%s  <- question 1 answered",
-                        state["stream_started_ok"])
+            logger.info(
+                "   RECORDING SAVED while streaming=%s  <- question 1 answered",
+                state["stream_started_ok"],
+            )
 
         elif event_type == "call.hangup":
             logger.info("   caller hung up (%s)", payload.get("hangup_cause", "?"))
@@ -244,9 +252,13 @@ def _on_text(state: dict, text: str) -> None:
         start = m.get("start", m)
         state["media_format"] = start.get("media_format", {})
         save_event("ws_start", m)
-        logger.info("   START media_format=%s call_control_id=%s from=%s to=%s",
-                    state["media_format"], start.get("call_control_id"),
-                    start.get("from"), start.get("to"))
+        logger.info(
+            "   START media_format=%s call_control_id=%s from=%s to=%s",
+            state["media_format"],
+            start.get("call_control_id"),
+            start.get("from"),
+            start.get("to"),
+        )
     elif event == "media":
         media = m.get("media", {})
         track = media.get("track", "inbound")
@@ -309,10 +321,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--max-seconds", type=int, default=MAX_SECONDS)
-    ap.add_argument("--try-siprec", action="store_true",
-                    help="start a SIPREC fork mid-stream to test the one-slot rule")
-    ap.add_argument("--no-record", action="store_true",
-                    help="isolate streaming; skip record_start")
+    ap.add_argument(
+        "--try-siprec",
+        action="store_true",
+        help="start a SIPREC fork mid-stream to test the one-slot rule",
+    )
+    ap.add_argument("--no-record", action="store_true", help="isolate streaming; skip record_start")
     ap.add_argument("--selfcheck", action="store_true", help="run the offline self-check and exit")
     args = ap.parse_args()
     if args.selfcheck:
@@ -327,8 +341,13 @@ def main() -> int:
     TRY_SIPREC = args.try_siprec
     NO_RECORD = args.no_record
 
-    logger.info("listening on :%d  media sink at %s  record=%s  try_siprec=%s",
-                args.port, PUBLIC_WSS, not NO_RECORD, TRY_SIPREC)
+    logger.info(
+        "listening on :%d  media sink at %s  record=%s  try_siprec=%s",
+        args.port,
+        PUBLIC_WSS,
+        not NO_RECORD,
+        TRY_SIPREC,
+    )
     logger.info("streaming_start payload: %s", json.dumps(streaming_start_payload()))
     logger.info("writing to %s", OUT)
     uvicorn.run(build_app(), host="0.0.0.0", port=args.port, log_level="warning")
