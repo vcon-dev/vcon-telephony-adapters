@@ -13,7 +13,6 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY core ./core
 COPY adapters ./adapters
-COPY twilio_adapter ./twilio_adapter
 COPY main.py ./
 
 RUN pip install --no-cache-dir . \
