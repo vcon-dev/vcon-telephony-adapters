@@ -7,7 +7,6 @@ basis and always embedded audio inline.
 
 import base64
 import hashlib
-import json
 import logging
 
 import pytest
@@ -57,9 +56,13 @@ def test_lawful_basis_emitted_when_configured(build):
     assert attachment["party"] == 0
     assert attachment["dialog"] == 0
     assert attachment["encoding"] == "json"
-    assert isinstance(attachment["body"], str), "body must be a JSON string, not an object"
+    assert attachment["mediatype"] == "application/json"
+    # draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL `body: any`): for
+    # `encoding: "json"`, body is the JSON value itself, not a `json.dumps`
+    # string.
+    assert isinstance(attachment["body"], dict), "body must be the JSON object, not a string"
 
-    body = json.loads(attachment["body"])
+    body = attachment["body"]
     assert body["lawful_basis"] == "consent"
 
     assert "lawful_basis" in vcon.to_dict()["extensions"]

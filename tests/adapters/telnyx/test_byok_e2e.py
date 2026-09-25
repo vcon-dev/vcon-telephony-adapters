@@ -175,8 +175,12 @@ def test_configured_lawful_basis_is_emitted_and_valid(real_event, dual_channel_w
     assert "lawful_basis" in vcon.to_dict()["extensions"]
     assert vcon.is_valid()[0]
 
-    assert isinstance(found[0]["body"], str), "body must be a JSON string, not an object"
-    body = json.loads(found[0]["body"])
+    # draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL `body: any`): for
+    # `encoding: "json"`, body is the JSON value itself, not a `json.dumps`
+    # string.
+    assert isinstance(found[0]["body"], dict), "body must be the JSON object, not a string"
+    assert found[0]["mediatype"] == "application/json"
+    body = found[0]["body"]
     assert body["lawful_basis"] == "legitimate_interests"
     assert [g["purpose"] for g in body["purpose_grants"]] == [
         "recording",

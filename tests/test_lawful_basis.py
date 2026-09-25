@@ -4,8 +4,6 @@ CON-814. `BaseVconBuilder` wrote no attachments at all, so no vCon any adapter
 in this monorepo produced asserted a legal basis for its own existence.
 """
 
-import json
-
 import pytest
 from vcon import Vcon
 
@@ -18,15 +16,14 @@ def fresh_vcon():
 
 
 def body_of(attachment: dict) -> dict:
-    """Decode an attachment's body.
+    """An attachment's body.
 
-    vcon-lib 0.9.6's `add_lawful_basis_attachment` emits `body` as an object;
-    `LawfulBasisConfig.apply` stringifies it to match the schema (`body` is
-    `type: string`) and `encoding: "json"`. Tests decode it back to assert on
-    its contents.
+    Under draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL `body: any`), `body` for
+    `encoding: "json"` is the JSON value itself, not a `json.dumps` string.
+    vcon-lib 0.9.6's `add_lawful_basis_attachment` already emits it that way.
     """
-    assert isinstance(attachment["body"], str), "body must be a JSON string, not an object"
-    return json.loads(attachment["body"])
+    assert isinstance(attachment["body"], dict), "body must be the JSON object, not a string"
+    return attachment["body"]
 
 
 # -- the refusal to invent -------------------------------------------------
@@ -77,6 +74,7 @@ def test_emitted_attachment_is_found_by_the_library():
     assert found[0]["party"] == 0
     assert found[0]["dialog"] == 0
     assert found[0]["encoding"] == "json"
+    assert found[0]["mediatype"] == "application/json"
 
 
 def test_emitted_attachment_keeps_the_vcon_valid():

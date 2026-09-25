@@ -395,6 +395,13 @@ All adapters share these common configuration options:
 | `LAWFUL_BASIS_EXPIRATION` | No | - | ISO 8601 timestamp when the lawful basis expires |
 | `LAWFUL_BASIS_JUSTIFICATION` | No | - | Free-text justification, stored in the attachment's metadata |
 
+The `lawful_basis` attachment (and every other JSON-encoded attachment these
+adapters emit, such as the platform tags attachment) follows
+draft-ietf-vcon-vcon-core-04 §2.3.2: for `encoding: "json"`, `body` is the
+raw JSON value itself (an object or array), not a `json.dumps` string.
+`mediatype: "application/json"` is set alongside it, and `start`/`party`/
+`dialog` are always present, as the Attachment Object requires.
+
 ## Webhook authentication
 
 Every adapter validates its incoming webhooks by default (`VALIDATE_*_WEBHOOK=true`):

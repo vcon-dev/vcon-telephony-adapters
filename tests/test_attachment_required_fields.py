@@ -1,10 +1,11 @@
-"""CON-1083 follow-up: every attachment carries start/party/dialog.
+"""CON-1083 follow-up: every attachment carries start/party/dialog/mediatype.
 
-The official schema (draft-ietf-vcon-vcon-core, Attachment Object) requires
-`start`, `party`, and `dialog` on every attachment. `Vcon.add_tag()` already
-sets `party`/`dialog` (but not `start`) on the tags attachment it creates;
-`LawfulBasisConfig.apply()` sets all three itself. Nothing backfilled
-`start` for the tags attachment until `BaseVconBuilder.build()` started
+The official schema (draft-ietf-vcon-vcon-core-04, Attachment Object)
+requires `start`, `party`, and `dialog` on every attachment, and `mediatype`
+whenever `body` is present. `Vcon.add_tag()` already sets `party`/`dialog`
+(but not `start` or `mediatype`) on the tags attachment it creates;
+`LawfulBasisConfig.apply()` sets `party`/`dialog`/`mediatype` itself but not
+`start`. Nothing backfilled the rest until `BaseVconBuilder.build()` started
 doing it for every attachment it emits, regardless of purpose.
 """
 
@@ -34,7 +35,7 @@ def _built_vcon(**builder_kwargs):
         return vcon
 
 
-def test_every_attachment_carries_start_party_and_dialog():
+def test_every_attachment_carries_start_party_dialog_and_mediatype():
     """Both the tags attachment and the lawful_basis attachment qualify."""
     vcon = _built_vcon(
         lawful_basis=LawfulBasisConfig(lawful_basis="consent", purposes=["recording"])
@@ -47,6 +48,10 @@ def test_every_attachment_carries_start_party_and_dialog():
         assert "start" in attachment, f"{attachment.get('purpose')} attachment has no start"
         assert "party" in attachment, f"{attachment.get('purpose')} attachment has no party"
         assert "dialog" in attachment, f"{attachment.get('purpose')} attachment has no dialog"
+        assert attachment.get("body") is not None, f"{attachment.get('purpose')} has no body"
+        assert (
+            attachment.get("mediatype") == "application/json"
+        ), f"{attachment.get('purpose')} attachment has no mediatype"
 
 
 def test_backfilled_start_matches_created_at():
@@ -70,3 +75,4 @@ def test_lawful_basis_attachment_keeps_its_own_party_and_dialog():
     assert lawful_basis_attachment["party"] == 0
     assert lawful_basis_attachment["dialog"] == 0
     assert lawful_basis_attachment["start"] == vcon.created_at
+    assert lawful_basis_attachment["mediatype"] == "application/json"
