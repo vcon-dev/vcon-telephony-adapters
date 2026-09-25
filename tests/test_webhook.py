@@ -3,6 +3,7 @@
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from adapters.twilio.config import TwilioConfig as Config
@@ -615,6 +616,70 @@ class TestTwilioSignatureValidation:
         )
 
         assert response.status_code == 403
+
+    @patch("adapters.twilio.webhook.HttpPoster")
+    def test_validation_enabled_accepts_valid_signature(self, mock_poster_class, minimal_env):
+        """With validation enabled, a correctly computed signature is accepted."""
+        from twilio.request_validator import RequestValidator
+
+        mock_poster = MagicMock()
+        mock_poster.post.return_value = True
+        mock_poster_class.return_value = mock_poster
+
+        minimal_env.setenv("VALIDATE_TWILIO_SIGNATURE", "true")
+        minimal_env.setenv("TWILIO_AUTH_TOKEN", "test_token_12345")
+        minimal_env.setenv("DOWNLOAD_RECORDINGS", "false")
+        minimal_env.setenv("WEBHOOK_URL", "https://adapter.example.com/webhook/recording")
+
+        config = Config()
+        app = create_app(config)
+        client = TestClient(app)
+
+        params = {
+            "RecordingSid": "RE_VALID_SIG",
+            "RecordingStatus": "completed",
+            "From": "+15551234567",
+            "To": "+15559876543",
+        }
+        validator = RequestValidator("test_token_12345")
+        signature = validator.compute_signature(
+            "https://adapter.example.com/webhook/recording", params
+        )
+
+        response = client.post(
+            "/webhook/recording",
+            data=params,
+            headers={"X-Twilio-Signature": signature},
+        )
+
+        assert response.status_code == 200
+
+    def test_validation_enabled_without_token_refuses_to_start(self, clean_env):
+        """VALIDATE_TWILIO_SIGNATURE=true with no auth token refuses to start."""
+        clean_env.setenv("CONSERVER_URL", "https://example.com/vcons")
+        clean_env.setenv("VALIDATE_TWILIO_SIGNATURE", "true")
+        clean_env.delenv("TWILIO_AUTH_TOKEN", raising=False)
+
+        with pytest.raises(ValueError, match="TWILIO_AUTH_TOKEN"):
+            Config()
+
+    def test_allow_unsigned_webhooks_opt_out(self, clean_env):
+        """ALLOW_UNSIGNED_WEBHOOKS=true starts without a token and accepts requests."""
+        clean_env.setenv("CONSERVER_URL", "https://example.com/vcons")
+        clean_env.setenv("VALIDATE_TWILIO_SIGNATURE", "true")
+        clean_env.setenv("ALLOW_UNSIGNED_WEBHOOKS", "true")
+        clean_env.setenv("DOWNLOAD_RECORDINGS", "false")
+        clean_env.delenv("TWILIO_AUTH_TOKEN", raising=False)
+
+        config = Config()
+        app = create_app(config)
+        client = TestClient(app)
+
+        response = client.post(
+            "/webhook/recording",
+            data={"RecordingSid": "RE_UNSIGNED_OK", "RecordingStatus": "in-progress"},
+        )
+        assert response.status_code == 200
 
 
 # =============================================================================

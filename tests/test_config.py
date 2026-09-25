@@ -39,6 +39,18 @@ class TestConfigRequired:
         config = Config()
         assert config.conserver_url == "https://example.com/vcons"
 
+    def test_allow_unsigned_webhooks_bypasses_auth_token_requirement(self, clean_env):
+        """ALLOW_UNSIGNED_WEBHOOKS=true is the documented opt-out of the startup refusal."""
+        clean_env.setenv("CONSERVER_URL", "https://example.com/vcons")
+        clean_env.setenv("VALIDATE_TWILIO_SIGNATURE", "true")
+        clean_env.setenv("ALLOW_UNSIGNED_WEBHOOKS", "true")
+
+        config = Config()
+
+        assert config.validate_twilio_signature is True
+        assert config.twilio_auth_token is None
+        assert config.allow_unsigned_webhooks is True
+
 
 class TestConfigDefaults:
     """Tests for default configuration values."""

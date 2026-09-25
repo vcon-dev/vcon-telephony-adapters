@@ -37,6 +37,7 @@ def clean_env(monkeypatch):
         "TWILIO_ACCOUNT_SID",
         "TWILIO_AUTH_TOKEN",
         "VALIDATE_TWILIO_SIGNATURE",
+        "ALLOW_UNSIGNED_WEBHOOKS",
         "WEBHOOK_URL",
         "HOST",
         "PORT",
