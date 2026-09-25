@@ -295,6 +295,21 @@ class BaseVconBuilder(ABC):
                     vcon.uuid,
                 )
 
+            # The official schema (draft-ietf-vcon-vcon-core, Attachment Object)
+            # requires `start`, `party`, and `dialog` on every attachment.
+            # Neither vcon-lib's own `add_tag()` (the tags attachment above)
+            # nor its own validator enforces that, so every attachment this
+            # builder produces gets backfilled here rather than leaving a
+            # schema-invalid vCon. `created_at` is when this vCon, and every
+            # attachment on it, was produced, which is what "sent/exchanged"
+            # means for a tag or a lawful basis record. Existing values are
+            # never overwritten (the lawful_basis attachment already sets its
+            # own party/dialog).
+            for attachment in vcon.vcon_dict.get("attachments", []):
+                attachment.setdefault("start", vcon.created_at)
+                attachment.setdefault("party", 0)
+                attachment.setdefault("dialog", 0)
+
             logger.info(
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "
                 f"(from: {recording_data.from_number}, to: {recording_data.to_number})"
