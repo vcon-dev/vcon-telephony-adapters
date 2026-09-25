@@ -7,6 +7,10 @@ Supports running individual adapters via command line argument:
     python main.py asterisk    # Run Asterisk adapter
     python main.py telnyx      # Run Telnyx adapter
     python main.py bandwidth   # Run Bandwidth adapter
+    python main.py vapi        # Run VAPI adapter
+    python main.py pipecat     # Run Pipecat adapter (health check only; see adapters/pipecat)
+    python main.py elevenlabs  # Run ElevenLabs adapter
+    python main.py signalwire  # Run SignalWire adapter (poller)
     python main.py             # Default: Run Twilio adapter
 """
 
@@ -158,6 +162,104 @@ def run_bandwidth_adapter():
     uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
 
 
+def run_vapi_adapter():
+    """Run the VAPI adapter."""
+    from adapters.vapi import VapiConfig, create_app
+
+    # Load configuration
+    config = VapiConfig()
+
+    # Setup logging
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon VAPI Adapter...")
+    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Webhook validation: {config.validate_webhook}")
+    logger.info(f"Download recordings: {config.download_recordings}")
+
+    # Create FastAPI app
+    app = create_app(config)
+
+    # Run server
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
+def run_pipecat_adapter():
+    """Run the Pipecat adapter.
+
+    Pipecat has no inbound webhook (see adapters/pipecat/config.py): this
+    only starts a health-check server so the adapter registers and
+    containerizes consistently. The real integration is importing
+    adapters.pipecat.VconConversationObserver into a Pipecat pipeline.
+    """
+    from adapters.pipecat import PipecatConfig, create_app
+
+    # Load configuration
+    config = PipecatConfig()
+
+    # Setup logging
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon Pipecat Adapter (health check only; see adapters/pipecat)...")
+    logger.info(f"Conserver URL: {config.conserver_url}")
+
+    # Create FastAPI app
+    app = create_app(config)
+
+    # Run server
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
+def run_elevenlabs_adapter():
+    """Run the ElevenLabs adapter."""
+    from adapters.elevenlabs import ElevenLabsConfig, create_app
+
+    # Load configuration
+    config = ElevenLabsConfig()
+
+    # Setup logging
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon ElevenLabs Adapter...")
+    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Webhook validation: {config.validate_webhook}")
+
+    # Create FastAPI app
+    app = create_app(config)
+
+    # Run server
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
+def run_signalwire_adapter():
+    """Run the SignalWire adapter (a poller, not a webhook receiver)."""
+    from adapters.signalwire import SignalWireConfig, create_app
+
+    # Load configuration
+    config = SignalWireConfig()
+
+    # Setup logging
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon SignalWire Adapter (polling)...")
+    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Poll interval: {config.poll_interval_seconds}s")
+
+    # Create FastAPI app
+    app = create_app(config)
+
+    # Run server
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
 # Registry of available adapters
 ADAPTERS = {
     "twilio": run_twilio_adapter,
@@ -165,6 +267,10 @@ ADAPTERS = {
     "asterisk": run_asterisk_adapter,
     "telnyx": run_telnyx_adapter,
     "bandwidth": run_bandwidth_adapter,
+    "vapi": run_vapi_adapter,
+    "pipecat": run_pipecat_adapter,
+    "elevenlabs": run_elevenlabs_adapter,
+    "signalwire": run_signalwire_adapter,
 }
 
 

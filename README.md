@@ -15,6 +15,10 @@ This project provides a unified framework for converting call recordings from va
 - **Asterisk** - Convert Asterisk recordings via ARI events
 - **Telnyx** - Convert Telnyx call recordings via webhooks
 - **Bandwidth** - Convert Bandwidth call recordings via webhooks
+- **VAPI** - Convert VAPI voice-AI end-of-call reports via webhooks
+- **Pipecat** - Emit vCons from a running Pipecat voice-AI pipeline (in-process observer, no webhook)
+- **ElevenLabs** - Convert ElevenLabs Conversational AI post-call events via webhooks
+- **SignalWire** - Convert SignalWire call recordings by polling the Compatibility API
 
 ## Architecture
 
@@ -30,8 +34,11 @@ vcon-telephony-adapters/
 │   ├── freeswitch/          # FreeSWITCH adapter
 │   ├── asterisk/            # Asterisk adapter
 │   ├── telnyx/              # Telnyx adapter
-│   └── bandwidth/           # Bandwidth adapter
-├── twilio_adapter/          # Backwards compatibility layer
+│   ├── bandwidth/           # Bandwidth adapter
+│   ├── vapi/                # VAPI adapter (webhook)
+│   ├── pipecat/             # Pipecat adapter (in-process observer, no webhook)
+│   ├── elevenlabs/          # ElevenLabs adapter (webhook)
+│   └── signalwire/          # SignalWire adapter (poller)
 ├── tests/                   # Test suite
 └── main.py                  # CLI entry point
 ```
@@ -91,6 +98,18 @@ vcon-adapter telnyx
 
 # Bandwidth
 vcon-adapter bandwidth
+
+# VAPI
+vcon-adapter vapi
+
+# Pipecat (health check only; see the Pipecat Adapter section below)
+vcon-adapter pipecat
+
+# ElevenLabs
+vcon-adapter elevenlabs
+
+# SignalWire (poller)
+vcon-adapter signalwire
 ```
 
 ---
@@ -366,6 +385,185 @@ refuses to start otherwise. See [Webhook authentication](#webhook-authentication
 
 ---
 
+## VAPI Adapter
+
+### Configuration
+
+```bash
+# Required
+CONSERVER_URL=https://your-conserver.example.com/api/vcons
+VAPI_WEBHOOK_SECRET=your_webhook_secret
+
+# Optional
+PORT=8086
+VALIDATE_VAPI_WEBHOOK=true
+VAPI_CUSTOMER_NAME=Customer
+VAPI_AGENT_NAME=AI Agent
+DOWNLOAD_RECORDINGS=true
+```
+
+### VAPI Configuration Options
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `VAPI_WEBHOOK_SECRET` | Yes* | - | Shared secret VAPI echoes back in the `x-vapi-secret` header |
+| `VALIDATE_VAPI_WEBHOOK` | No | `true` | Enable webhook secret validation |
+| `VAPI_CUSTOMER_NAME` | No | `Customer` | Display name for the customer party |
+| `VAPI_AGENT_NAME` | No | `AI Agent` | Display name for the agent party |
+
+\* Required when `VALIDATE_VAPI_WEBHOOK=true` (the default): the adapter refuses to
+start otherwise. See [Webhook authentication](#webhook-authentication) below.
+
+VAPI also offers HMAC-signature and OAuth authentication with a configurable header
+name (https://docs.vapi.ai/server-url/server-authentication); this adapter implements
+the simpler, documented shared-secret header, not the HMAC variant.
+
+### Configuring VAPI
+
+1. In the VAPI dashboard, set your assistant's Server URL to your adapter endpoint:
+   ```
+   https://your-domain.com/vapi
+   ```
+
+2. Configure the same value as `VAPI_WEBHOOK_SECRET` on the server URL's credential.
+
+---
+
+## Pipecat Adapter
+
+Pipecat (https://github.com/pipecat-ai/pipecat) is a voice-AI pipeline framework, not
+a service that calls a webhook: the integration runs inside your own pipeline process.
+`python main.py pipecat` / `vcon-adapter pipecat` only starts a `/health` endpoint so
+the adapter registers and containerizes like the others.
+
+### Integration
+
+```python
+from adapters.pipecat import VconConversationObserver
+
+observer = VconConversationObserver(
+    conversation_id="call-123",
+    on_vcon=lambda v: my_poster.post(v),
+    publisher=config.build_publisher(),
+    lawful_basis=config.build_lawful_basis(),
+)
+
+pipeline = Pipeline([
+    transport.input(),
+    stt,
+    observer,           # intercepts user transcripts
+    llm,
+    observer,           # same instance also intercepts LLM output
+    tts,
+    transport.output(),
+])
+```
+
+See `adapters/pipecat/observer.py` for the full frame-processor wiring, including
+`as_frame_processor()` for plugging directly into a Pipecat `Pipeline`.
+
+### Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PIPECAT_USER_NAME` | No | - | Display name for the user party |
+| `PIPECAT_AGENT_NAME` | No | `Agent` | Display name for the agent party |
+
+No webhook-validation variables apply; there is no inbound request to authenticate.
+
+---
+
+## ElevenLabs Adapter
+
+### Configuration
+
+```bash
+# Required
+CONSERVER_URL=https://your-conserver.example.com/api/vcons
+ELEVENLABS_WEBHOOK_SECRET=your_webhook_signing_secret
+
+# Optional
+PORT=8087
+VALIDATE_ELEVENLABS_WEBHOOK=true
+ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS=1800
+DOWNLOAD_RECORDINGS=true
+```
+
+### ElevenLabs Configuration Options
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ELEVENLABS_WEBHOOK_SECRET` | Yes* | - | HMAC signing secret from the ElevenLabs post-call webhook config |
+| `VALIDATE_ELEVENLABS_WEBHOOK` | No | `true` | Enable `elevenlabs-signature` HMAC validation |
+| `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS` | No | `1800` | Reject webhooks whose timestamp is older than this |
+| `ELEVENLABS_API_KEY` | No | - | Only needed to fetch additional conversation detail from the API |
+
+\* Required when `VALIDATE_ELEVENLABS_WEBHOOK=true` (the default): the adapter
+refuses to start otherwise. See [Webhook authentication](#webhook-authentication) below.
+
+**Signature verification caveat:** ElevenLabs' public docs confirm the header name
+(`elevenlabs-signature`) and that it carries an HMAC signature with a timestamp, but do
+not spell out the exact signed-string format. This adapter implements the widely-used
+`t=<timestamp>,v0=<hex_hmac_sha256>` convention the header shape resembles. Verify
+against a real signed request (or the `elevenlabs` Python SDK's
+`webhooks.construct_event`) before relying on it in production; a mismatch fails
+closed (rejects the webhook), it does not silently accept.
+
+### Configuring ElevenLabs
+
+1. In the ElevenLabs dashboard, configure a post-call webhook for your agent, pointed at:
+   ```
+   https://your-domain.com/webhook/post-call
+   ```
+
+2. Copy the signing secret shown into `ELEVENLABS_WEBHOOK_SECRET`.
+
+3. ElevenLabs sends `post_call_transcription` and `post_call_audio` as separate
+   webhook calls; this adapter emits one vCon per call, tagged with the same
+   `conversation_id` so they can be correlated downstream.
+
+---
+
+## SignalWire Adapter
+
+SignalWire's Compatibility API doesn't push a "recording complete" webhook, so this
+adapter polls `GET /Recordings.json` on an interval instead.
+
+### Configuration
+
+```bash
+# Required
+CONSERVER_URL=https://your-conserver.example.com/api/vcons
+SIGNALWIRE_PROJECT_ID=your_project_id
+SIGNALWIRE_AUTH_TOKEN=your_auth_token
+SIGNALWIRE_SPACE_URL=https://your-space.signalwire.com
+
+# Optional
+PORT=8088
+SIGNALWIRE_POLL_INTERVAL_SECONDS=300
+SIGNALWIRE_RETENTION_DAYS=30
+DOWNLOAD_RECORDINGS=true
+```
+
+### SignalWire Configuration Options
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SIGNALWIRE_PROJECT_ID` | Yes | - | SignalWire project ID |
+| `SIGNALWIRE_AUTH_TOKEN` | Yes | - | SignalWire API token (outbound API auth, not a webhook secret) |
+| `SIGNALWIRE_SPACE_URL` | Yes | - | Your SignalWire space URL |
+| `SIGNALWIRE_POLL_INTERVAL_SECONDS` | No | `300` | How often to poll for new recordings |
+| `SIGNALWIRE_RETENTION_DAYS` | No | `30` | How long to retain processed-call dedupe state |
+
+There is no `VALIDATE_*_WEBHOOK` variable for SignalWire: it is a poller, not a
+webhook receiver, so there is no inbound request to authenticate. Dedupe state (which
+calls have already been shipped) only advances past a call once its vCon has been
+built **and** successfully posted to the conserver; a build or post failure leaves the
+call unmarked and inside the next poll's fetch window, so it is retried rather than
+silently dropped.
+
+---
+
 ## Common Configuration
 
 All adapters share these common configuration options:
@@ -404,10 +602,13 @@ raw JSON value itself (an object or array), not a `json.dumps` string.
 
 ## Webhook authentication
 
-Every adapter validates its incoming webhooks by default (`VALIDATE_*_WEBHOOK=true`):
-an HMAC secret for Asterisk/FreeSWITCH, Twilio's own signature scheme, Telnyx's Ed25519
-Call Control signature plus a token on the TeXML callback, or HTTP Basic Auth for
-Bandwidth, depending on the platform.
+Every webhook-based adapter validates its incoming webhooks by default
+(`VALIDATE_*_WEBHOOK=true`): an HMAC secret for Asterisk/FreeSWITCH, Twilio's own
+signature scheme, Telnyx's Ed25519 Call Control signature plus a token on the TeXML
+callback, HTTP Basic Auth for Bandwidth, a shared secret header for VAPI, or an HMAC
+signature for ElevenLabs, depending on the platform. SignalWire is a poller, not a
+webhook receiver, so it has no `VALIDATE_*_WEBHOOK` setting; Pipecat has no inbound
+request at all (the integration runs inside your own process).
 
 If validation is enabled but the corresponding secret/key/credentials are not
 configured, **the adapter refuses to start** rather than silently accepting
