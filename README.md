@@ -115,11 +115,14 @@ RECORDING_FORMAT=wav
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TWILIO_ACCOUNT_SID` | Yes* | - | Your Twilio Account SID |
-| `TWILIO_AUTH_TOKEN` | Yes* | - | Your Twilio Auth Token |
+| `TWILIO_AUTH_TOKEN` | Yes** | - | Your Twilio Auth Token |
 | `VALIDATE_TWILIO_SIGNATURE` | No | `true` | Validate webhook signatures |
 | `WEBHOOK_URL` | No | - | Public URL for signature validation |
 
-\* Required when `DOWNLOAD_RECORDINGS=true` or `VALIDATE_TWILIO_SIGNATURE=true`
+\* Required when `DOWNLOAD_RECORDINGS=true`.
+\** Required when `VALIDATE_TWILIO_SIGNATURE=true` (the default): the adapter refuses to
+start otherwise, rather than accept unauthenticated webhooks. See
+[Webhook authentication](#webhook-authentication) below for the escape hatch.
 
 ### Configuring Twilio
 
@@ -156,13 +159,16 @@ CONSERVER_URL=https://your-conserver.example.com/api/vcons
 # FreeSWITCH-specific
 FREESWITCH_HOST=localhost
 FREESWITCH_ESL_PORT=8021
+# Required if/when the ESL path is used; no stock default (FreeSWITCH ships
+# with "ClueCon", which this adapter deliberately does not default to)
+FREESWITCH_ESL_PASSWORD=your_esl_password
 FREESWITCH_RECORDINGS_PATH=/var/lib/freeswitch/recordings
 FREESWITCH_RECORDINGS_URL_BASE=https://fs.example.com/recordings
 FREESWITCH_WEBHOOK_SECRET=your_webhook_secret
 
 # Optional
 PORT=8082
-VALIDATE_FREESWITCH_WEBHOOK=false
+VALIDATE_FREESWITCH_WEBHOOK=true
 DOWNLOAD_RECORDINGS=true
 RECORDING_FORMAT=wav
 ```
@@ -173,10 +179,14 @@ RECORDING_FORMAT=wav
 |----------|----------|---------|-------------|
 | `FREESWITCH_HOST` | No | `localhost` | FreeSWITCH host |
 | `FREESWITCH_ESL_PORT` | No | `8021` | ESL port |
+| `FREESWITCH_ESL_PASSWORD` | No* | - | ESL password; no default (required if/when the ESL path is used) |
 | `FREESWITCH_RECORDINGS_PATH` | No | `/var/lib/freeswitch/recordings` | Local recordings path |
 | `FREESWITCH_RECORDINGS_URL_BASE` | No | - | URL base for HTTP downloads |
-| `FREESWITCH_WEBHOOK_SECRET` | No | - | HMAC secret for webhook validation |
-| `VALIDATE_FREESWITCH_WEBHOOK` | No | `false` | Enable webhook signature validation |
+| `FREESWITCH_WEBHOOK_SECRET` | Yes** | - | HMAC secret for webhook validation |
+| `VALIDATE_FREESWITCH_WEBHOOK` | No | `true` | Enable webhook signature validation |
+
+\** Required when `VALIDATE_FREESWITCH_WEBHOOK=true` (the default): the adapter refuses
+to start otherwise. See [Webhook authentication](#webhook-authentication) below.
 
 ### Configuring FreeSWITCH
 
@@ -208,7 +218,7 @@ ASTERISK_RECORDINGS_PATH=/var/spool/asterisk/recording
 
 # Optional
 PORT=8083
-VALIDATE_ASTERISK_WEBHOOK=false
+VALIDATE_ASTERISK_WEBHOOK=true
 ASTERISK_WEBHOOK_SECRET=your_webhook_secret
 DOWNLOAD_RECORDINGS=true
 RECORDING_FORMAT=wav
@@ -223,8 +233,11 @@ RECORDING_FORMAT=wav
 | `ASTERISK_ARI_USERNAME` | No | - | ARI username |
 | `ASTERISK_ARI_PASSWORD` | No | - | ARI password |
 | `ASTERISK_RECORDINGS_PATH` | No | `/var/spool/asterisk/recording` | Local recordings path |
-| `ASTERISK_WEBHOOK_SECRET` | No | - | HMAC secret for webhook validation |
-| `VALIDATE_ASTERISK_WEBHOOK` | No | `false` | Enable webhook signature validation |
+| `ASTERISK_WEBHOOK_SECRET` | Yes* | - | HMAC secret for webhook validation |
+| `VALIDATE_ASTERISK_WEBHOOK` | No | `true` | Enable webhook signature validation |
+
+\* Required when `VALIDATE_ASTERISK_WEBHOOK=true` (the default): the adapter refuses to
+start otherwise. See [Webhook authentication](#webhook-authentication) below.
 
 ### Configuring Asterisk
 
@@ -250,8 +263,10 @@ TELNYX_API_KEY=KEY_xxxxxxxxxxxxx
 
 # Optional
 PORT=8084
-VALIDATE_TELNYX_WEBHOOK=false
+VALIDATE_TELNYX_WEBHOOK=true
 TELNYX_PUBLIC_KEY=your_public_key_for_signature_validation
+# Protects /webhook/texml-recording (see "Smart trunk TeXML callback" below)
+TELNYX_TEXML_CALLBACK_TOKEN=a_long_random_shared_secret
 DOWNLOAD_RECORDINGS=true
 RECORDING_FORMAT=wav
 ```
@@ -261,10 +276,15 @@ RECORDING_FORMAT=wav
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TELNYX_API_KEY` | Yes* | - | Telnyx API key for downloading recordings |
-| `TELNYX_PUBLIC_KEY` | No | - | Public key for webhook signature validation |
-| `VALIDATE_TELNYX_WEBHOOK` | No | `false` | Enable webhook signature validation |
+| `TELNYX_PUBLIC_KEY` | Yes** | - | Public key for Call Control webhook signature validation |
+| `TELNYX_TEXML_CALLBACK_TOKEN` | Yes** | - | Shared-secret token that protects `/webhook/texml-recording` |
+| `VALIDATE_TELNYX_WEBHOOK` | No | `true` | Enable webhook validation (both Call Control signatures and the TeXML token) |
 
-\* Required when `DOWNLOAD_RECORDINGS=true`
+\* Required when `DOWNLOAD_RECORDINGS=true`.
+\** Required when `VALIDATE_TELNYX_WEBHOOK=true` (the default): the adapter refuses to
+start otherwise. See [Webhook authentication](#webhook-authentication) below. The
+`cryptography` package is also a hard requirement whenever validation is on, since it is
+what verifies the Ed25519 Call Control signature.
 
 ### Configuring Telnyx
 
@@ -276,6 +296,22 @@ RECORDING_FORMAT=wav
    ```
 
 3. Enable `call.recording.saved` events.
+
+#### Smart trunk TeXML callback
+
+Telnyx's TeXML `recordingStatusCallback` (path B of the smart trunk, handled at
+`/webhook/texml-recording`) is a Twilio-compatible form POST with no Ed25519 signature of
+its own, unlike the Call Control JSON webhooks above. It is gated instead with a
+shared-secret token compared using a constant-time comparison
+(`hmac.compare_digest`). Set `TELNYX_TEXML_CALLBACK_TOKEN` to a long random value and
+configure the callback URL with it as a query parameter:
+
+```
+https://your-domain.com/webhook/texml-recording?token=<TELNYX_TEXML_CALLBACK_TOKEN>
+```
+
+With `VALIDATE_TELNYX_WEBHOOK=true` (the default), the adapter refuses to start unless
+this token is set.
 
 ---
 
@@ -292,7 +328,7 @@ BANDWIDTH_PASSWORD=your_api_password
 
 # Optional
 PORT=8085
-VALIDATE_BANDWIDTH_WEBHOOK=false
+VALIDATE_BANDWIDTH_WEBHOOK=true
 BANDWIDTH_WEBHOOK_USERNAME=webhook_user
 BANDWIDTH_WEBHOOK_PASSWORD=webhook_pass
 DOWNLOAD_RECORDINGS=true
@@ -306,11 +342,13 @@ RECORDING_FORMAT=wav
 | `BANDWIDTH_ACCOUNT_ID` | Yes | - | Bandwidth Account ID |
 | `BANDWIDTH_USERNAME` | Yes* | - | API username for downloading recordings |
 | `BANDWIDTH_PASSWORD` | Yes* | - | API password for downloading recordings |
-| `BANDWIDTH_WEBHOOK_USERNAME` | No | - | HTTP Basic Auth username for webhook |
-| `BANDWIDTH_WEBHOOK_PASSWORD` | No | - | HTTP Basic Auth password for webhook |
-| `VALIDATE_BANDWIDTH_WEBHOOK` | No | `false` | Enable HTTP Basic Auth validation |
+| `BANDWIDTH_WEBHOOK_USERNAME` | Yes** | - | HTTP Basic Auth username for webhook |
+| `BANDWIDTH_WEBHOOK_PASSWORD` | Yes** | - | HTTP Basic Auth password for webhook |
+| `VALIDATE_BANDWIDTH_WEBHOOK` | No | `true` | Enable HTTP Basic Auth validation |
 
-\* Required when `DOWNLOAD_RECORDINGS=true`
+\* Required when `DOWNLOAD_RECORDINGS=true`.
+\** Both required when `VALIDATE_BANDWIDTH_WEBHOOK=true` (the default): the adapter
+refuses to start otherwise. See [Webhook authentication](#webhook-authentication) below.
 
 ### Configuring Bandwidth
 
@@ -341,6 +379,30 @@ All adapters share these common configuration options:
 | `INGRESS_LISTS` | No | - | Comma-separated routing lists for conserver |
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
+| `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
+
+## Webhook authentication
+
+Every adapter validates its incoming webhooks by default (`VALIDATE_*_WEBHOOK=true`):
+an HMAC secret for Asterisk/FreeSWITCH, Twilio's own signature scheme, Telnyx's Ed25519
+Call Control signature plus a token on the TeXML callback, or HTTP Basic Auth for
+Bandwidth, depending on the platform.
+
+If validation is enabled but the corresponding secret/key/credentials are not
+configured, **the adapter refuses to start** rather than silently accepting
+unauthenticated webhooks. This is deliberate: a webhook receiver that fails open when
+misconfigured is a receiver anyone can post fabricated recording events to.
+
+To run an adapter without webhook authentication anyway (a lab box, a local demo, a
+platform that genuinely offers no way to verify these particular requests), set:
+
+```bash
+ALLOW_UNSIGNED_WEBHOOKS=true
+```
+
+This is a loud, explicit opt-out: it logs a warning at startup and again wherever a
+secret is actually missing, but it lets every adapter start and accept unauthenticated
+webhooks. Do not set this in production.
 
 ## API Endpoints
 
