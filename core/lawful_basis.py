@@ -90,11 +90,22 @@ class LawfulBasisConfig:
             for purpose in self.purposes
         ]
 
-    def apply(self, vcon: Vcon, party_index: int | None = None) -> bool:
+    def apply(self, vcon: Vcon, party_index: int = 0, dialog_index: int = 0) -> bool:
         """Attach the configured basis. Returns False when none is configured.
 
         Delegates to `vcon-lib`, which owns the shape its own validator and
-        finder expect.
+        finder expect. Under draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL
+        `body: any`), `body` for `encoding: "json"` is the JSON value itself,
+        not a `json.dumps` string — so vcon-lib 0.9.6's object body is
+        correct as-is and is left untouched. (An earlier revision of this
+        method stringified it against a stale schema fork that typed `body`
+        as a string; that was wrong for -04 and has been reverted.)
+
+        Every adapter here produces exactly one dialog and references party 0
+        as the recording's subject, so `party`/`dialog` default to 0 rather
+        than being left off. `mediatype` is required whenever `body` is
+        present (-04's Attachment Object); vcon-lib does not set it, so it is
+        added here.
         """
         if not self.enabled:
             return False
@@ -115,6 +126,11 @@ class LawfulBasisConfig:
             expiration=self.expiration,
             purpose_grants=self.purpose_grants(granted_at),
             party_index=party_index,
+            dialog_index=dialog_index,
             **extra,
         )
+
+        attachment = vcon.vcon_dict["attachments"][-1]
+        attachment.setdefault("mediatype", "application/json")
+
         return True

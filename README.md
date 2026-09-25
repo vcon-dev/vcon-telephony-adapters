@@ -383,6 +383,24 @@ All adapters share these common configuration options:
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
+| `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64), `filesystem`, or `s3` |
+| `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
+| `MEDIA_FILESYSTEM_PATH` | Only if `MEDIA_BACKEND=filesystem` | - | Directory to write published recordings to |
+| `MEDIA_S3_BUCKET` | Only if `MEDIA_BACKEND=s3` | - | S3 (or S3-compatible) bucket for published recordings. Needs the `s3` extra: `pip install ".[s3]"` |
+| `MEDIA_S3_REGION` | No | - | S3 region |
+| `MEDIA_S3_PREFIX` | No | - | Key prefix for published recordings in the bucket |
+| `MEDIA_S3_ENDPOINT_URL` | No | - | Endpoint URL for an S3-compatible store (DigitalOcean Spaces, MinIO, Telnyx Cloud Storage); leave unset for AWS |
+| `LAWFUL_BASIS` | No | - | Why this deployment may hold the recording: `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, or `legitimate_interests`. Unset means no `lawful_basis` attachment is emitted; never defaulted |
+| `LAWFUL_BASIS_PURPOSES` | No | `recording` | Comma-separated purposes granted under the basis |
+| `LAWFUL_BASIS_EXPIRATION` | No | - | ISO 8601 timestamp when the lawful basis expires |
+| `LAWFUL_BASIS_JUSTIFICATION` | No | - | Free-text justification, stored in the attachment's metadata |
+
+The `lawful_basis` attachment (and every other JSON-encoded attachment these
+adapters emit, such as the platform tags attachment) follows
+draft-ietf-vcon-vcon-core-04 §2.3.2: for `encoding: "json"`, `body` is the
+raw JSON value itself (an object or array), not a `json.dumps` string.
+`mediatype: "application/json"` is set alongside it, and `start`/`party`/
+`dialog` are always present, as the Attachment Object requires.
 
 ## Webhook authentication
 

@@ -15,6 +15,17 @@ def fresh_vcon():
     return Vcon.build_new()
 
 
+def body_of(attachment: dict) -> dict:
+    """An attachment's body.
+
+    Under draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL `body: any`), `body` for
+    `encoding: "json"` is the JSON value itself, not a `json.dumps` string.
+    vcon-lib 0.9.6's `add_lawful_basis_attachment` already emits it that way.
+    """
+    assert isinstance(attachment["body"], dict), "body must be the JSON object, not a string"
+    return attachment["body"]
+
+
 # -- the refusal to invent -------------------------------------------------
 
 
@@ -59,7 +70,11 @@ def test_emitted_attachment_is_found_by_the_library():
 
     found = vcon.find_lawful_basis_attachments()
     assert len(found) == 1
-    assert found[0]["body"]["lawful_basis"] == "consent"
+    assert body_of(found[0])["lawful_basis"] == "consent"
+    assert found[0]["party"] == 0
+    assert found[0]["dialog"] == 0
+    assert found[0]["encoding"] == "json"
+    assert found[0]["mediatype"] == "application/json"
 
 
 def test_emitted_attachment_keeps_the_vcon_valid():
@@ -104,7 +119,7 @@ def test_all_purposes_are_granted():
         purposes=["recording", "transcription", "analysis"],
     ).apply(vcon)
 
-    grants = vcon.find_lawful_basis_attachments()[0]["body"]["purpose_grants"]
+    grants = body_of(vcon.find_lawful_basis_attachments()[0])["purpose_grants"]
     assert [g["purpose"] for g in grants] == ["recording", "transcription", "analysis"]
     assert all(g["granted"] and g["granted_at"] for g in grants)
 
@@ -117,7 +132,7 @@ def test_justification_survives_in_metadata():
         justification="Carrier-side recording; controller manages consent.",
     ).apply(vcon)
 
-    body = vcon.find_lawful_basis_attachments()[0]["body"]
+    body = body_of(vcon.find_lawful_basis_attachments()[0])
     assert "controller manages consent" in body["metadata"]["justification"]
 
 
@@ -125,7 +140,7 @@ def test_expiration_is_carried_when_set():
     vcon = fresh_vcon()
     LawfulBasisConfig(lawful_basis="consent", expiration="2027-01-01T00:00:00+00:00").apply(vcon)
 
-    assert vcon.find_lawful_basis_attachments()[0]["body"]["expiration"] is not None
+    assert body_of(vcon.find_lawful_basis_attachments()[0])["expiration"] is not None
 
 
 # -- configuration ---------------------------------------------------------
