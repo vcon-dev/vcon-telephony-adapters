@@ -1,0 +1,51 @@
+<!-- Test extensions for vCon FreeSWITCH testing
+     Add these to /opt/homebrew/etc/freeswitch/dialplan/default.xml
+     inside the <context name="default"> element, before the closing </context> tag
+-->
+
+<!-- Test extension 1000: SIP endpoint with recording -->
+<extension name="test_record_1000">
+  <condition field="destination_number" expression="^1000$">
+    <action application="set" data="recording_file=/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="record_session" data="/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="answer"/>
+    <action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
+    <action application="sleep" data="1000"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+
+<!-- Test extension 1001: SIP endpoint echo with recording -->
+<extension name="test_record_1001">
+  <condition field="destination_number" expression="^1001$">
+    <action application="set" data="recording_file=/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="record_session" data="/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="answer"/>
+    <action application="echo"/>
+  </condition>
+</extension>
+
+<!-- Test extension 1002: Record, play prompt, and webhook -->
+<extension name="test_record_webhook">
+  <condition field="destination_number" expression="^1002$">
+    <action application="answer"/>
+    <action application="set" data="recording_file=/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="record_session" data="/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
+    <action application="sleep" data="2000"/>
+    <action application="stop_record_session" data="/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav"/>
+    <action application="set" data="api_result=${curl(json http://localhost:8080/webhook/recording post {uuid:'${uuid}',caller_id_number:'${caller_id_number}',caller_id_name:'${caller_id_name}',destination_number:'${destination_number}',direction:'${direction}',start_epoch:'${start_epoch}',duration:'${duration}',recording_file:'/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav',context:'${context}'})}"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+
+<!-- Test extension 1003: Record for N seconds then webhook (simple) -->
+<extension name="test_timed_record">
+  <condition field="destination_number" expression="^1003$">
+    <action application="answer"/>
+    <action application="set" data="playback_terminators=#"/>
+    <action application="record" data="/opt/homebrew/var/lib/freeswitch/recordings/${uuid}.wav 5 16000"/>
+    <action application="lua" data="recording_webhook.lua"/>
+    <action application="hangup"/>
+  </condition>
+</extension>

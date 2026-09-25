@@ -737,12 +737,20 @@ pytest tests/adapters/freeswitch/
 pytest tests/adapters/asterisk/
 pytest tests/adapters/telnyx/
 pytest tests/adapters/bandwidth/
+pytest tests/adapters/vapi/
+pytest tests/adapters/pipecat/
+pytest tests/adapters/elevenlabs/
+pytest tests/adapters/signalwire/
 
 # Run with verbose output
 pytest -v
 ```
 
-The test suite includes 157+ tests covering all adapters with configuration, builder, and webhook tests.
+The test suite includes 600+ tests covering all adapters with configuration, builder, and
+webhook (or observer/poller) tests.
+
+`tests/e2e/freeswitch/` is a separate manual harness against a real, locally running
+FreeSWITCH instance; it is excluded from the default `pytest` run (see its own README).
 
 ### Code formatting
 

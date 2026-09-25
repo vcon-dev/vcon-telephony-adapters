@@ -1,0 +1,13 @@
+<!-- Event Socket configuration for ESL access
+     Replace /opt/homebrew/etc/freeswitch/autoload_configs/event_socket.conf.xml
+-->
+<configuration name="event_socket.conf" description="Socket Client">
+  <settings>
+    <param name="nat-map" value="false"/>
+    <param name="listen-ip" value="0.0.0.0"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="ClueCon"/>
+    <!-- Allow connections from any IP (for testing only) -->
+    <param name="apply-inbound-acl" value="loopback.auto"/>
+  </settings>
+</configuration>
