@@ -512,7 +512,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = sample_audio_bytes
@@ -536,7 +536,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 404
             mock_get.return_value = mock_response
@@ -556,7 +556,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_get.side_effect = Exception("Connection error")
 
             vcon = builder_with_auth.build(data)
@@ -574,7 +574,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
@@ -597,7 +597,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
@@ -620,7 +620,7 @@ class TestVconBuilderDownload:
             }
         )
 
-        with patch("twilio_adapter.builder.requests.get") as mock_get:
+        with patch("adapters.twilio.builder.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.content = b"audio"
