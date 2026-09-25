@@ -235,3 +235,33 @@ class TestBandwidthWebhookValidation:
                 headers={"Authorization": f"Basic {credentials}"},
             )
             assert response.status_code == 200
+
+    def test_missing_credentials_refuses_to_start(self, monkeypatch, tmp_path):
+        """Validation enabled with no credentials raises at config construction."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_BANDWIDTH_WEBHOOK", "true")
+        monkeypatch.delenv("BANDWIDTH_WEBHOOK_USERNAME", raising=False)
+        monkeypatch.delenv("BANDWIDTH_WEBHOOK_PASSWORD", raising=False)
+
+        with pytest.raises(ValueError, match="BANDWIDTH_WEBHOOK_USERNAME"):
+            BandwidthConfig()
+
+    def test_allow_unsigned_webhooks_opt_out(self, monkeypatch, tmp_path):
+        """ALLOW_UNSIGNED_WEBHOOKS=true starts without credentials and accepts requests."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_BANDWIDTH_WEBHOOK", "true")
+        monkeypatch.setenv("ALLOW_UNSIGNED_WEBHOOKS", "true")
+        monkeypatch.delenv("BANDWIDTH_WEBHOOK_USERNAME", raising=False)
+        monkeypatch.delenv("BANDWIDTH_WEBHOOK_PASSWORD", raising=False)
+
+        config = BandwidthConfig()
+        app = create_app(config)
+        client = TestClient(app)
+
+        response = client.post(
+            "/webhook/recording",
+            json={"eventType": "recordingComplete", "recordingId": "r-123"},
+        )
+        assert response.status_code == 200

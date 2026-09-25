@@ -1,8 +1,11 @@
 """Configuration management for Asterisk adapter."""
 
+import logging
 import os
 
 from core.base_config import BaseConfig
+
+logger = logging.getLogger(__name__)
 
 
 class AsteriskConfig(BaseConfig):
@@ -40,15 +43,30 @@ class AsteriskConfig(BaseConfig):
             "ASTERISK_RECORDINGS_PATH", "/var/spool/asterisk/recording"
         )
 
-        # Webhook authentication (optional)
+        # Webhook authentication (required unless ALLOW_UNSIGNED_WEBHOOKS is set)
         self.webhook_secret = os.getenv("ASTERISK_WEBHOOK_SECRET")
 
-        # Whether to validate webhook signatures
-        self.validate_webhook = os.getenv("VALIDATE_ASTERISK_WEBHOOK", "false").lower() in (
+        # Whether to validate webhook signatures. On by default: an adapter
+        # that accepts unauthenticated recording events by default is not a
+        # safe default.
+        self.validate_webhook = os.getenv("VALIDATE_ASTERISK_WEBHOOK", "true").lower() in (
             "true",
             "1",
             "yes",
         )
+
+        if self.validate_webhook and not self.webhook_secret:
+            if self.allow_unsigned_webhooks:
+                logger.warning(
+                    "VALIDATE_ASTERISK_WEBHOOK is enabled but ASTERISK_WEBHOOK_SECRET is "
+                    "not set; accepting unsigned webhooks because ALLOW_UNSIGNED_WEBHOOKS=true"
+                )
+            else:
+                raise ValueError(
+                    "ASTERISK_WEBHOOK_SECRET is required when VALIDATE_ASTERISK_WEBHOOK is "
+                    "true. Set the secret, or set ALLOW_UNSIGNED_WEBHOOKS=true to accept "
+                    "unsigned webhooks (not recommended)."
+                )
 
     def get_ari_auth(self) -> tuple:
         """Get ARI authentication tuple.

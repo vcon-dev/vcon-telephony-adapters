@@ -1,8 +1,11 @@
 """Twilio-specific configuration extending base config."""
 
+import logging
 import os
 
 from core.base_config import BaseConfig
+
+logger = logging.getLogger(__name__)
 
 
 class TwilioConfig(BaseConfig):
@@ -29,7 +32,17 @@ class TwilioConfig(BaseConfig):
         )
 
         if self.validate_twilio_signature and not self.twilio_auth_token:
-            raise ValueError("TWILIO_AUTH_TOKEN is required when VALIDATE_TWILIO_SIGNATURE is true")
+            if self.allow_unsigned_webhooks:
+                logger.warning(
+                    "VALIDATE_TWILIO_SIGNATURE is enabled but TWILIO_AUTH_TOKEN is not set; "
+                    "accepting unsigned webhooks because ALLOW_UNSIGNED_WEBHOOKS=true"
+                )
+            else:
+                raise ValueError(
+                    "TWILIO_AUTH_TOKEN is required when VALIDATE_TWILIO_SIGNATURE is true. "
+                    "Set the token, or set ALLOW_UNSIGNED_WEBHOOKS=true to accept unsigned "
+                    "webhooks (not recommended)."
+                )
 
         # Webhook URL for signature validation (optional, can be auto-detected)
         self.webhook_url = os.getenv("WEBHOOK_URL")

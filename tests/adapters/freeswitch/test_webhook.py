@@ -20,6 +20,7 @@ class TestFreeSwitchWebhook:
         """Create test config."""
         monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
         monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_FREESWITCH_WEBHOOK", "false")
         return FreeSwitchConfig()
 
     @pytest.fixture
@@ -194,4 +195,29 @@ class TestFreeSwitchWebhookValidation:
             },
         )
         # Should pass validation (may fail later due to missing mocks)
+        assert response.status_code in (200, 500)
+
+    def test_missing_secret_refuses_to_start(self, monkeypatch, tmp_path):
+        """Validation enabled with no secret raises at config construction."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_FREESWITCH_WEBHOOK", "true")
+        monkeypatch.delenv("FREESWITCH_WEBHOOK_SECRET", raising=False)
+
+        with pytest.raises(ValueError, match="FREESWITCH_WEBHOOK_SECRET"):
+            FreeSwitchConfig()
+
+    def test_allow_unsigned_webhooks_opt_out(self, monkeypatch, tmp_path):
+        """ALLOW_UNSIGNED_WEBHOOKS=true starts without a secret and accepts requests."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_FREESWITCH_WEBHOOK", "true")
+        monkeypatch.setenv("ALLOW_UNSIGNED_WEBHOOKS", "true")
+        monkeypatch.delenv("FREESWITCH_WEBHOOK_SECRET", raising=False)
+
+        config = FreeSwitchConfig()
+        app = create_app(config)
+        client = TestClient(app)
+
+        response = client.post("/webhook/recording", json={"uuid": "abc123"})
         assert response.status_code in (200, 500)

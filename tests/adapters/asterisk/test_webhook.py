@@ -17,6 +17,7 @@ class TestAsteriskWebhook:
         """Create test config."""
         monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
         monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_ASTERISK_WEBHOOK", "false")
         return AsteriskConfig()
 
     @pytest.fixture
@@ -160,3 +161,83 @@ class TestAsteriskWebhook:
         client = TestClient(app)
         response = client.get("/status/unknown-name")
         assert response.status_code == 404
+
+
+class TestAsteriskWebhookValidation:
+    """Tests for Asterisk webhook signature validation and its fail-closed startup checks."""
+
+    @pytest.fixture
+    def config_with_validation(self, monkeypatch, tmp_path):
+        """Create config with webhook validation enabled and a secret configured."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_ASTERISK_WEBHOOK", "true")
+        monkeypatch.setenv("ASTERISK_WEBHOOK_SECRET", "test-secret")
+        return AsteriskConfig()
+
+    def test_missing_secret_refuses_to_start(self, monkeypatch, tmp_path):
+        """Validation enabled with no secret raises at config construction."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_ASTERISK_WEBHOOK", "true")
+        monkeypatch.delenv("ASTERISK_WEBHOOK_SECRET", raising=False)
+
+        with pytest.raises(ValueError, match="ASTERISK_WEBHOOK_SECRET"):
+            AsteriskConfig()
+
+    def test_allow_unsigned_webhooks_opt_out(self, monkeypatch, tmp_path):
+        """ALLOW_UNSIGNED_WEBHOOKS=true starts without a secret and accepts requests."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_ASTERISK_WEBHOOK", "true")
+        monkeypatch.setenv("ALLOW_UNSIGNED_WEBHOOKS", "true")
+        monkeypatch.delenv("ASTERISK_WEBHOOK_SECRET", raising=False)
+
+        config = AsteriskConfig()
+        app = create_app(config)
+        client = TestClient(app)
+
+        response = client.post("/webhook/recording", json={"type": "RecordingFinished"})
+        assert response.status_code == 200
+
+    def test_webhook_missing_signature(self, config_with_validation):
+        """Test webhook without a signature header is rejected."""
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            json={"type": "RecordingFinished", "recording_name": "rec-1"},
+        )
+        assert response.status_code == 403
+
+    def test_webhook_invalid_signature(self, config_with_validation):
+        """Test webhook with an invalid signature is rejected."""
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            json={"type": "RecordingFinished", "recording_name": "rec-1"},
+            headers={"X-Asterisk-Signature": "invalid"},
+        )
+        assert response.status_code == 403
+
+    def test_webhook_valid_signature(self, config_with_validation):
+        """Test webhook with a valid HMAC signature is accepted."""
+        import hashlib
+        import hmac
+        import json
+
+        data = json.dumps({"type": "RecordingFinished", "recording_name": "rec-1"}).encode()
+        signature = hmac.new(b"test-secret", data, hashlib.sha256).hexdigest()
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=data,
+            headers={
+                "Content-Type": "application/json",
+                "X-Asterisk-Signature": signature,
+            },
+        )
+        assert response.status_code == 200

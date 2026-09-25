@@ -1,8 +1,11 @@
 """Base configuration management for telephony adapters."""
 
+import logging
 import os
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 
 class BaseConfig:
@@ -97,6 +100,25 @@ class BaseConfig:
 
         # Logging level
         self.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+        # --- Webhook authentication opt-out ------------------------------
+        # Every adapter defaults webhook validation to on and refuses to
+        # start if validation is on but nothing is configured to check
+        # (see each adapter's config for the specific required secret/key).
+        # This is the one escape hatch: a lab or dev box that genuinely
+        # wants to accept unauthenticated webhooks sets this explicitly
+        # instead of the check silently no-op'ing.
+        self.allow_unsigned_webhooks = os.getenv("ALLOW_UNSIGNED_WEBHOOKS", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        if self.allow_unsigned_webhooks:
+            logger.warning(
+                "ALLOW_UNSIGNED_WEBHOOKS=true: this adapter will accept webhooks "
+                "without verifying who sent them wherever a secret/key is not "
+                "configured. Do not run this in production."
+            )
 
     def get_headers(self) -> dict[str, str]:
         """Get HTTP headers for conserver requests."""

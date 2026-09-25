@@ -1,8 +1,11 @@
 """Configuration management for Bandwidth adapter."""
 
+import logging
 import os
 
 from core.base_config import BaseConfig
+
+logger = logging.getLogger(__name__)
 
 
 class BandwidthConfig(BaseConfig):
@@ -36,7 +39,8 @@ class BandwidthConfig(BaseConfig):
         # Application ID for voice calls
         self.bandwidth_application_id = os.getenv("BANDWIDTH_APPLICATION_ID")
 
-        # Webhook authentication (basic auth credentials)
+        # Webhook authentication (basic auth credentials, required unless
+        # ALLOW_UNSIGNED_WEBHOOKS is set)
         self.webhook_username = os.getenv("BANDWIDTH_WEBHOOK_USERNAME")
         self.webhook_password = os.getenv("BANDWIDTH_WEBHOOK_PASSWORD")
 
@@ -46,6 +50,21 @@ class BandwidthConfig(BaseConfig):
             "1",
             "yes",
         )
+
+        if self.validate_webhook and not (self.webhook_username and self.webhook_password):
+            if self.allow_unsigned_webhooks:
+                logger.warning(
+                    "VALIDATE_BANDWIDTH_WEBHOOK is enabled but BANDWIDTH_WEBHOOK_USERNAME/"
+                    "BANDWIDTH_WEBHOOK_PASSWORD are not both set; accepting unsigned "
+                    "webhooks because ALLOW_UNSIGNED_WEBHOOKS=true"
+                )
+            else:
+                raise ValueError(
+                    "BANDWIDTH_WEBHOOK_USERNAME and BANDWIDTH_WEBHOOK_PASSWORD are required "
+                    "when VALIDATE_BANDWIDTH_WEBHOOK is true. Set both, or set "
+                    "ALLOW_UNSIGNED_WEBHOOKS=true to accept unsigned webhooks (not "
+                    "recommended)."
+                )
 
     def get_api_auth(self) -> tuple:
         """Get API authentication tuple.
