@@ -31,10 +31,27 @@ def create_app(config: TwilioConfig) -> FastAPI:
     )
 
     # Initialize components
+    publisher = config.build_publisher()
+    if publisher is None:
+        logger.warning(
+            "MEDIA_BACKEND=embed: audio will be inlined as base64, making each "
+            "vCon roughly 1.3x the size of the recording. Set MEDIA_BACKEND=s3 "
+            "for anything beyond a lab."
+        )
+    lawful_basis = config.build_lawful_basis()
+    if not lawful_basis.enabled:
+        logger.warning(
+            "LAWFUL_BASIS is unset, so vCons will carry no record of why this "
+            "deployment may hold the recording. Fine for a lab; not for real "
+            "conversations."
+        )
+
     builder = TwilioVconBuilder(
         download_recordings=config.download_recordings,
         recording_format=config.recording_format,
         twilio_auth=config.get_twilio_auth(),
+        publisher=publisher,
+        lawful_basis=lawful_basis,
     )
     poster = HttpPoster(config.conserver_url, config.get_headers(), config.ingress_lists)
     tracker = StateTracker(config.state_file)
