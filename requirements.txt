@@ -1,6 +1,8 @@
-python-dotenv>=1.0.0
-requests>=2.28.0
-fastapi>=0.100.0
-uvicorn>=0.23.0
-twilio>=8.0.0
-cryptography>=41.0.0
+# Dependencies are declared in pyproject.toml (the single source of truth).
+# Install the package with its runtime deps:
+#   pip install .
+# Add the S3 media publisher and/or dev/test tooling as needed:
+#   pip install ".[s3]"
+#   pip install ".[dev]"
+#   pip install ".[all]"
+-e .
