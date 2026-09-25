@@ -182,6 +182,14 @@ class BandwidthVconBuilder(BaseVconBuilder):
         super().__init__(download_recordings, recording_format, publisher, lawful_basis)
         self.api_auth = api_auth
 
+    def _reference_url(self, recording_url: str) -> str:
+        """Bandwidth's mediaUrl is already a complete, extension-less endpoint.
+
+        `.../recordings/{recordingId}/media` resolves as-is; appending
+        `.wav`/`.mp3` produces a path Bandwidth does not serve.
+        """
+        return recording_url
+
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:
         """Download recording from Bandwidth.
 

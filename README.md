@@ -39,7 +39,7 @@ vcon-telephony-adapters/
 ## Requirements
 
 - Python 3.12+
-- [vcon-lib](https://github.com/vcon-dev/vcon-lib) - The vCon library for creating vCon objects
+- [vcon](https://pypi.org/project/vcon/) - The vCon library for creating vCon objects (declared as a dependency, installed automatically)
 
 ## Installation
 
@@ -49,24 +49,27 @@ vcon-telephony-adapters/
 pip install vcon-telephony-adapters
 ```
 
-You'll also need the vcon library:
-
-```bash
-pip install git+https://github.com/vcon-dev/vcon-lib.git
-```
+The `vcon` library is a declared dependency and installs automatically.
 
 ### From Source
 
 ```bash
 git clone https://github.com/vcon-dev/vcon-telephony-adapters.git
 cd vcon-telephony-adapters
-pip install -e .
+pip install .
 ```
 
-### Development Installation
+### Optional extras
 
 ```bash
-pip install -e ".[dev]"
+# S3 media publishing (adds boto3; only needed with MEDIA_BACKEND=s3)
+pip install ".[s3]"
+
+# Development / test tooling
+pip install ".[dev]"
+
+# Everything
+pip install ".[all]"
 ```
 
 ## Quick Start
@@ -559,58 +562,50 @@ To add support for a new telephony platform:
 
 ## Deployment
 
-### Docker
+### Running in Docker
 
-```dockerfile
-FROM python:3.11-slim
+The repo ships a single `Dockerfile`. The adapter name is the container's
+command (see `main.py`), so one image serves every adapter:
 
-WORKDIR /app
+```bash
+docker build -t vcon-telephony-adapters .
 
-# Install from PyPI
-RUN pip install vcon-telephony-adapters
-RUN pip install git+https://github.com/vcon-dev/vcon-lib.git
-
-EXPOSE 8080
-CMD ["vcon-adapter", "twilio"]
+docker run --rm -d \
+  --name vcon-twilio \
+  -p 8080:8080 \
+  --env-file .env \
+  vcon-telephony-adapters twilio
 ```
+
+The image runs as a non-root user and exposes a `HEALTHCHECK` against
+`GET /health` on `PORT` (default `8080`):
+
+```bash
+curl http://localhost:8080/health
+# {"status": "healthy", "service": "vcon-telephony-adapters-twilio"}
+```
+
+`CONSERVER_URL` is required (see `.env.example`); the container exits at
+startup without it.
 
 ### Docker Compose (Multiple Adapters)
 
-```yaml
-version: '3.8'
-services:
-  twilio-adapter:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - CONSERVER_URL=https://your-conserver.example.com/api/vcons
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-    command: ["vcon-adapter", "twilio"]
+Copy `compose.example.yaml` to `compose.yaml` and `.env.example` to `.env`,
+then start the adapters you need:
 
-  telnyx-adapter:
-    build: .
-    ports:
-      - "8084:8084"
-    environment:
-      - CONSERVER_URL=https://your-conserver.example.com/api/vcons
-      - TELNYX_API_KEY=${TELNYX_API_KEY}
-      - PORT=8084
-    command: ["vcon-adapter", "telnyx"]
-
-  bandwidth-adapter:
-    build: .
-    ports:
-      - "8085:8085"
-    environment:
-      - CONSERVER_URL=https://your-conserver.example.com/api/vcons
-      - BANDWIDTH_ACCOUNT_ID=${BANDWIDTH_ACCOUNT_ID}
-      - BANDWIDTH_USERNAME=${BANDWIDTH_USERNAME}
-      - BANDWIDTH_PASSWORD=${BANDWIDTH_PASSWORD}
-      - PORT=8085
-    command: ["vcon-adapter", "bandwidth"]
+```bash
+docker compose up twilio
 ```
+
+Each service in the example file builds the same image and only differs by
+`command` (the adapter name) and the `PORT` it publishes.
+
+### Publishing images
+
+`.github/workflows/docker-publish.yml` builds and pushes
+`ghcr.io/<org>/vcon-telephony-adapters` on any `v*` tag push. It is not
+wired to run outside of a tag push, and no tag is pushed as part of this
+change.
 
 ### Production Checklist
 

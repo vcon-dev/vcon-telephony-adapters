@@ -1,0 +1,52 @@
+# Example Compose file for running an adapter in Docker.
+#
+# Copy to compose.yaml, copy .env.example to .env and fill it in, then:
+#   docker compose up twilio
+#
+# Each service runs the same image with a different adapter name as its
+# command (see Dockerfile CMD). Uncomment the adapters you need.
+services:
+  twilio:
+    build: .
+    image: vcon-telephony-adapters:local
+    command: ["twilio"]
+    env_file: .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # bandwidth:
+  #   build: .
+  #   image: vcon-telephony-adapters:local
+  #   command: ["bandwidth"]
+  #   env_file: .env
+  #   ports:
+  #     - "8081:8080"
+  #   restart: unless-stopped
+
+  # telnyx:
+  #   build: .
+  #   image: vcon-telephony-adapters:local
+  #   command: ["telnyx"]
+  #   env_file: .env
+  #   ports:
+  #     - "8082:8080"
+  #   restart: unless-stopped
+
+  # asterisk:
+  #   build: .
+  #   image: vcon-telephony-adapters:local
+  #   command: ["asterisk"]
+  #   env_file: .env
+  #   ports:
+  #     - "8083:8080"
+  #   restart: unless-stopped
+
+  # freeswitch:
+  #   build: .
+  #   image: vcon-telephony-adapters:local
+  #   command: ["freeswitch"]
+  #   env_file: .env
+  #   ports:
+  #     - "8084:8080"
+  #   restart: unless-stopped

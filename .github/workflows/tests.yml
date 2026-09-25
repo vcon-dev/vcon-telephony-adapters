@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Note: vcon-lib requires Python 3.12+
+    # Note: the vcon package requires Python 3.12+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,8 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install git+https://github.com/vcon-dev/vcon-lib.git
-          pip install -e ".[dev]"
+          pip install -e ".[dev,s3]"
 
       - name: Run tests with coverage
         run: |
