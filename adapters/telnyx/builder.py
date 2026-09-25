@@ -227,6 +227,15 @@ class TelnyxRecordingData(BaseRecordingData):
         if self._payload.get("channels"):
             tags["recording_channels"] = self._payload["channels"]
 
+        # TeXML only: when the call began and when recording began. The gap between
+        # them is the ringback, where a pre-answer notice plays.
+        for key in ("call_initiated_at", "recording_started_at"):
+            if self._payload.get(key):
+                tags[key] = self._payload[key]
+
+        for name, value in (self._payload.get("annotations") or {}).items():
+            tags[f"annotation_{name}"] = value
+
         return tags
 
 

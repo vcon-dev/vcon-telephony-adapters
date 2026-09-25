@@ -16,6 +16,7 @@ TEXML_FORM = {
     "AccountSid": "acct-1",
     "CallSid": "v3:CALLSID",
     "CallSessionId": "sess-texml-1",
+    "CallInitiatedAt": "2026-09-13T02:34:48.101000Z",
     "CallStatus": "completed",
     "ConnectionId": "3047649853975824124",
     "Direction": "inbound",
@@ -67,11 +68,38 @@ def test_texml_callback_is_reshaped_and_built(config):
         assert data.recording_urls == {"mp3": TEXML_FORM["RecordingUrl"]}
         assert data.duration_seconds == pytest.approx(22.5, abs=0.1)
         assert data.platform_tags["recording_channels"] == "dual"
+        assert data.platform_tags["call_initiated_at"] == "2026-09-13T02:34:48.101000Z"
+        assert data.platform_tags["recording_started_at"] == TEXML_FORM["RecordingStartTime"]
+        assert not any(k.startswith("annotation_") for k in data.platform_tags)
         poster.post.assert_called_once_with(vcon)
 
         # second delivery of the same RecordingSid is a no-op
         r2 = client.post("/webhook/texml-recording", data=TEXML_FORM)
         assert r2.text == "OK" and poster.post.call_count == 1
+
+
+def test_texml_annotations_become_tags(config):
+    form = {
+        **TEXML_FORM,
+        "Annotation-notice": "notice-v1.wav",
+        "Annotation-notice_sha256": "ab" * 32,
+        "Annotation-bad name": "dropped",
+        "Annotation-": "dropped",
+    }
+    with (
+        patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
+        patch("adapters.telnyx.webhook.TelnyxVconBuilder") as builder_cls,
+    ):
+        builder_cls.return_value.build.return_value = MagicMock(uuid="vcon-2")
+        poster_cls.return_value.post.return_value = True
+        client = TestClient(create_app(config))
+        assert client.post("/webhook/texml-recording", data=form).text == "OK"
+        (data,), _ = builder_cls.return_value.build.call_args
+        annotations = {k: v for k, v in data.platform_tags.items() if k.startswith("annotation_")}
+        assert annotations == {
+            "annotation_notice": "notice-v1.wav",
+            "annotation_notice_sha256": "ab" * 32,
+        }
 
 
 def test_texml_callback_ignores_non_completed(config):

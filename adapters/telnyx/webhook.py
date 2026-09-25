@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import logging
+import re
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse
@@ -14,6 +15,9 @@ from .builder import TelnyxRecordingData, TelnyxVconBuilder
 from .call_session import CallSessionStore
 from .config import TelnyxConfig
 from .provision import TelnyxProvisioner, handle_call_event
+
+# Relayed TeXML form fields with this prefix become annotation_<name> tags.
+ANNOTATION_PREFIX = "Annotation-"
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +317,10 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         "1"|"2", RecordingStartTime/EndTime, From, To, Direction, ConnectionId.
         Unlike Call Control webhooks these carry From and To, so no lookup is needed.
 
+        A service that relays this callback can add `Annotation-<name>` fields, for
+        example which recording notice it played. Each becomes an `annotation_<name>`
+        tag on the vCon. They are exactly as trusted as the rest of this unsigned form.
+
         ponytail: no signature check here. TeXML callbacks are not ed25519 signed the
         way Call Control webhooks are; gate this path with a per-tenant token in the
         URL when the multi-tenant hook lands (CON-846).
@@ -339,6 +347,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             "to": f.get("To", ""),
             "direction": direction,
             "recording_source": f.get("RecordingSource", "texml"),
+            "call_initiated_at": f.get("CallInitiatedAt"),
+            "annotations": {
+                k[len(ANNOTATION_PREFIX) :]: v
+                for k, v in f.items()
+                if k.startswith(ANNOTATION_PREFIX)
+                and re.fullmatch(r"[A-Za-z0-9_]{1,64}", k[len(ANNOTATION_PREFIX) :])
+            },
         }
         event_data = {
             "data": {
