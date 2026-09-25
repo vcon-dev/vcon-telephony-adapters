@@ -162,6 +162,12 @@ class FreeSwitchVconBuilder(BaseVconBuilder):
         self.recordings_path = recordings_path or "/var/lib/freeswitch/recordings"
         self.recordings_url_base = recordings_url_base
 
+    def _reference_url(self, recording_url: str) -> str:
+        """FreeSWITCH recording URLs and file paths already carry the file
+        extension (e.g. `.../abc123.wav`); appending another one doubles it.
+        """
+        return recording_url
+
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:
         """Download or read recording from FreeSWITCH.
 

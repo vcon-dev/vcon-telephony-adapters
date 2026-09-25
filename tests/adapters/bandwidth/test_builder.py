@@ -215,3 +215,27 @@ class TestBandwidthVconBuilder:
 
         assert vcon is not None
         assert len(vcon.dialog) == 1
+
+    def test_reference_url_unchanged(self, builder):
+        """Bandwidth's mediaUrl is already a complete endpoint with no file
+        extension; the base class default of appending `.wav`/`.mp3` would
+        produce a URL Bandwidth does not serve (CON-1084).
+        """
+        media_url = (
+            "https://voice.bandwidth.com/api/v2/accounts/123456/calls/"
+            "c-call-abc123/recordings/r-rec-def456/media"
+        )
+
+        assert builder._reference_url(media_url) == media_url
+
+    def test_build_vcon_reference_mode_url_unchanged(self, sample_recording_data):
+        """In reference mode (no download, no publisher) the dialog URL must
+        match the Bandwidth mediaUrl exactly, not have a format suffix
+        appended.
+        """
+        builder = BandwidthVconBuilder(download_recordings=False)
+
+        vcon = builder.build(sample_recording_data)
+
+        assert vcon is not None
+        assert vcon.dialog[0]["url"] == sample_recording_data.recording_url

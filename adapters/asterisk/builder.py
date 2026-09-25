@@ -196,6 +196,13 @@ class AsteriskVconBuilder(BaseVconBuilder):
         self.ari_url = ari_url
         self.ari_auth = ari_auth
 
+    def _reference_url(self, recording_url: str) -> str:
+        """Asterisk's `target_uri`/recording URL already carries the file
+        extension (e.g. `file:/var/spool/asterisk/recording/rec.wav`);
+        appending another one doubles it.
+        """
+        return recording_url
+
     def _download_recording(self, recording_data: BaseRecordingData) -> bytes | None:
         """Download or read recording from Asterisk.
 
