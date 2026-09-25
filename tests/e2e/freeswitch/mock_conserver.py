@@ -48,7 +48,7 @@ async def create_vcon(request: Request):
     try:
         vcon_data = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+        raise HTTPException(status_code=400, detail="Invalid JSON") from None
 
     uuid = vcon_data.get("uuid", "")
     if not uuid:
@@ -85,12 +85,14 @@ async def list_vcons():
         try:
             with open(filepath) as f:
                 data = json.load(f)
-            vcons.append({
-                "uuid": uuid,
-                "created_at": data.get("created_at", ""),
-                "parties": len(data.get("parties", [])),
-                "dialogs": len(data.get("dialog", [])),
-            })
+            vcons.append(
+                {
+                    "uuid": uuid,
+                    "created_at": data.get("created_at", ""),
+                    "parties": len(data.get("parties", [])),
+                    "dialogs": len(data.get("dialog", [])),
+                }
+            )
         except Exception:
             vcons.append({"uuid": uuid, "error": "failed to read"})
     return {"vcons": vcons, "total": len(vcons)}

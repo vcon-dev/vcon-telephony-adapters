@@ -75,6 +75,19 @@ def _strip_empty_placeholders(d: dict, keys: tuple = ("meta", "metadata")) -> No
             del d[k]
 
 
+def _as_float(value: Any) -> float | None:
+    """SignalWire's Recordings.json returns `duration` as a numeric string
+    (e.g. "30"), not a number; the vCon spec's dialog `duration` is numeric,
+    so this coerces rather than passing the string straight through."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.warning(f"Could not parse SignalWire recording duration: {value!r}")
+        return None
+
+
 class SignalWireVconBuilder:
     """Builds one vCon per SignalWire call, with one dialog per recording."""
 
@@ -154,7 +167,7 @@ class SignalWireVconBuilder:
             "start": start_iso,
             "parties": [0, 1],
             "type": "recording",
-            "duration": recording.get("duration"),
+            "duration": _as_float(recording.get("duration")),
             "mediatype": "audio/wav",
         }
 

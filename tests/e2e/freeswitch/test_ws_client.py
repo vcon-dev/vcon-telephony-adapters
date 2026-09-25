@@ -56,18 +56,20 @@ async def run_client(
 
     async with websockets.connect(server_url) as ws:
         # Send start message
-        start_msg = json.dumps({
-            "type": "start",
-            "call_id": call_id,
-            "agent_id": agent_id,
-            "sample_rate": sample_rate,
-            "encoding": "pcm16",
-            "channels": 1,
-            "caller_number": "+15551234567",
-            "callee_number": "+15559876543",
-        })
+        start_msg = json.dumps(
+            {
+                "type": "start",
+                "call_id": call_id,
+                "agent_id": agent_id,
+                "sample_rate": sample_rate,
+                "encoding": "pcm16",
+                "channels": 1,
+                "caller_number": "+15551234567",
+                "callee_number": "+15559876543",
+            }
+        )
         await ws.send(start_msg)
-        print(f"Sent start message")
+        print("Sent start message")
 
         # Wait for acknowledgment
         try:
@@ -108,7 +110,7 @@ async def run_client(
         # Send stop message
         stop_msg = json.dumps({"type": "stop", "call_id": call_id})
         await ws.send(stop_msg)
-        print(f"\nSent stop message")
+        print("\nSent stop message")
 
         # Wait for final results
         print("Waiting for final results...")
@@ -138,14 +140,16 @@ def main():
 
     call_id = args.call_id or str(uuid.uuid4())
 
-    asyncio.run(run_client(
-        server_url=args.url,
-        call_id=call_id,
-        agent_id=args.agent_id,
-        sample_rate=args.sample_rate,
-        duration_s=args.duration,
-        chunk_ms=args.chunk_ms,
-    ))
+    asyncio.run(
+        run_client(
+            server_url=args.url,
+            call_id=call_id,
+            agent_id=args.agent_id,
+            sample_rate=args.sample_rate,
+            duration_s=args.duration,
+            chunk_ms=args.chunk_ms,
+        )
+    )
 
 
 if __name__ == "__main__":

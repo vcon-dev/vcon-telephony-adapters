@@ -84,3 +84,21 @@ class TestSignalWireVconBuilder:
         recording = next(d for d in vcon.vcon_dict["dialog"] if d.get("type") == "recording")
         assert recording.get("mediatype") == "audio/wav"
         assert "mimetype" not in recording
+
+    def test_duration_string_coerced_to_number(self):
+        """SignalWire's Recordings.json returns duration as a numeric string
+        (e.g. "30"); the dialog's duration field must be numeric, not a str,
+        or it fails WG schema validation (found via schema check, CON-703)."""
+        builder = SignalWireVconBuilder(download_recordings=False)
+        vcon = builder.build(make_data(num_recordings=1))
+        recording = next(d for d in vcon.vcon_dict["dialog"] if d.get("type") == "recording")
+        assert recording["duration"] == 30.0
+        assert isinstance(recording["duration"], float)
+
+    def test_unparseable_duration_omitted_without_raising(self):
+        data = make_data(num_recordings=1)
+        data.recordings[0]["duration"] = "not-a-number"
+        builder = SignalWireVconBuilder(download_recordings=False)
+        vcon = builder.build(data)
+        recording = next(d for d in vcon.vcon_dict["dialog"] if d.get("type") == "recording")
+        assert recording.get("duration") is None
