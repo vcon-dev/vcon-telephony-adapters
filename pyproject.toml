@@ -30,6 +30,10 @@ dependencies = [
     "uvicorn>=0.23.0",
     "twilio>=8.0.0",
     "python-multipart>=0.0.6",
+    # Verifies Telnyx's Ed25519 webhook signatures. Previously only pulled in
+    # transitively (via vcon); declared directly because the Telnyx adapter
+    # fails closed (refuses unsigned webhooks) if it is missing.
+    "cryptography>=41.0.0",
 ]
 
 [project.optional-dependencies]

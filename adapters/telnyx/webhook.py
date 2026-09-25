@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import hmac
 import logging
 import re
 
@@ -91,6 +92,8 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             return True
 
         if not config.telnyx_public_key:
+            # Only reachable with ALLOW_UNSIGNED_WEBHOOKS=true: TelnyxConfig
+            # refuses to start otherwise when validation is on with no public key.
             logger.warning("Webhook validation enabled but no public key configured")
             return True
 
@@ -98,9 +101,11 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             return False
 
         try:
-            # Telnyx signature validation
-            # The signature is: ed25519(timestamp + "." + body)
-            signed_payload = f"{timestamp}.".encode() + request_body
+            # Telnyx signature validation.
+            # The signed message is `{timestamp}|{raw body}` (pipe separator,
+            # per https://developers.telnyx.com/docs/development/api-fundamentals/webhooks/receiving-webhooks),
+            # not the dot separator this used to use.
+            signed_payload = f"{timestamp}|".encode() + request_body
 
             # Decode the base64 signature
             signature_bytes = base64.b64decode(signature)
@@ -114,8 +119,16 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 public_key.verify(signature_bytes, signed_payload)
                 return True
             except ImportError:
-                logger.warning("cryptography library not installed, skipping signature validation")
-                return True
+                if config.allow_unsigned_webhooks:
+                    logger.warning(
+                        "cryptography library not installed; accepting webhook unsigned "
+                        "because ALLOW_UNSIGNED_WEBHOOKS=true"
+                    )
+                    return True
+                logger.error(
+                    "cryptography library not installed; failing closed on webhook signature"
+                )
+                return False
             except Exception:
                 return False
 
@@ -319,12 +332,19 @@ def create_app(config: TelnyxConfig) -> FastAPI:
 
         A service that relays this callback can add `Annotation-<name>` fields, for
         example which recording notice it played. Each becomes an `annotation_<name>`
-        tag on the vCon. They are exactly as trusted as the rest of this unsigned form.
+        tag on the vCon. They are exactly as trusted as the rest of this form.
 
-        ponytail: no signature check here. TeXML callbacks are not ed25519 signed the
-        way Call Control webhooks are; gate this path with a per-tenant token in the
-        URL when the multi-tenant hook lands (CON-846).
+        TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
+        this path is gated with a shared-secret token in the callback URL instead
+        (TELNYX_TEXML_CALLBACK_TOKEN, compared with hmac.compare_digest). Configure
+        the recordingStatusCallback as .../webhook/texml-recording?token=<the secret>.
         """
+        if config.validate_webhook and config.texml_callback_token:
+            token = request.query_params.get("token", "")
+            if not token or not hmac.compare_digest(token, config.texml_callback_token):
+                logger.warning("Invalid or missing token on TeXML recording callback")
+                raise HTTPException(status_code=403, detail="Invalid token")
+
         form = await request.form()
         f = {k: str(v) for k, v in form.items()}
         if f.get("RecordingStatus", "completed") != "completed" or not f.get("RecordingUrl"):

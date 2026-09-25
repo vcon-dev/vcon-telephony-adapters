@@ -1,8 +1,11 @@
 """Configuration management for Telnyx adapter."""
 
+import logging
 import os
 
 from core.base_config import BaseConfig
+
+logger = logging.getLogger(__name__)
 
 
 class TelnyxConfig(BaseConfig):
@@ -30,7 +33,8 @@ class TelnyxConfig(BaseConfig):
         # Telnyx API base URL
         self.telnyx_api_url = os.getenv("TELNYX_API_URL", "https://api.telnyx.com/v2")
 
-        # Webhook public key for signature validation
+        # Webhook public key for signature validation (required unless
+        # ALLOW_UNSIGNED_WEBHOOKS is set)
         self.telnyx_public_key = os.getenv("TELNYX_PUBLIC_KEY")
 
         # Whether to validate webhook signatures
@@ -42,6 +46,54 @@ class TelnyxConfig(BaseConfig):
 
         # Webhook URL (for signature validation)
         self.webhook_url = os.getenv("TELNYX_WEBHOOK_URL")
+
+        # Shared-secret token for /webhook/texml-recording. Telnyx's TeXML
+        # recordingStatusCallback is a Twilio-compatible form POST with no
+        # ed25519 signature of its own (unlike Call Control webhooks), so it
+        # is gated with a token in the callback URL instead: configure the
+        # recordingStatusCallback as
+        # https://<host>/webhook/texml-recording?token=<this value>.
+        self.texml_callback_token = os.getenv("TELNYX_TEXML_CALLBACK_TOKEN")
+
+        if self.validate_webhook and not self.telnyx_public_key:
+            if self.allow_unsigned_webhooks:
+                logger.warning(
+                    "VALIDATE_TELNYX_WEBHOOK is enabled but TELNYX_PUBLIC_KEY is not set; "
+                    "accepting unsigned Call Control webhooks because "
+                    "ALLOW_UNSIGNED_WEBHOOKS=true"
+                )
+            else:
+                raise ValueError(
+                    "TELNYX_PUBLIC_KEY is required when VALIDATE_TELNYX_WEBHOOK is true. "
+                    "Set the key, or set ALLOW_UNSIGNED_WEBHOOKS=true to accept unsigned "
+                    "webhooks (not recommended)."
+                )
+
+        if self.validate_webhook and not self.texml_callback_token:
+            if self.allow_unsigned_webhooks:
+                logger.warning(
+                    "VALIDATE_TELNYX_WEBHOOK is enabled but TELNYX_TEXML_CALLBACK_TOKEN is "
+                    "not set; /webhook/texml-recording will accept unauthenticated callbacks "
+                    "because ALLOW_UNSIGNED_WEBHOOKS=true"
+                )
+            else:
+                raise ValueError(
+                    "TELNYX_TEXML_CALLBACK_TOKEN is required when VALIDATE_TELNYX_WEBHOOK is "
+                    "true, to protect /webhook/texml-recording (TeXML callbacks are not "
+                    "ed25519-signed). Set the token, or set ALLOW_UNSIGNED_WEBHOOKS=true to "
+                    "accept unsigned webhooks (not recommended)."
+                )
+
+        if self.validate_webhook and not self.allow_unsigned_webhooks:
+            try:
+                import cryptography  # noqa: F401
+            except ImportError:
+                raise ValueError(
+                    "VALIDATE_TELNYX_WEBHOOK is true but the 'cryptography' package is not "
+                    "installed, so Call Control webhook signatures cannot be verified. "
+                    "Install cryptography, or set ALLOW_UNSIGNED_WEBHOOKS=true to accept "
+                    "unsigned webhooks (not recommended)."
+                ) from None
 
         # --- Smart trunk (bring your own key) ---
         # When auto_siprec is on, every answered call is forked to our SRS via
