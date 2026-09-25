@@ -4,6 +4,8 @@ CON-814. `BaseVconBuilder` wrote no attachments at all, so no vCon any adapter
 in this monorepo produced asserted a legal basis for its own existence.
 """
 
+import json
+
 import pytest
 from vcon import Vcon
 
@@ -13,6 +15,18 @@ from core.lawful_basis import VALID_LAWFUL_BASES, LawfulBasisConfig
 
 def fresh_vcon():
     return Vcon.build_new()
+
+
+def body_of(attachment: dict) -> dict:
+    """Decode an attachment's body.
+
+    vcon-lib 0.9.6's `add_lawful_basis_attachment` emits `body` as an object;
+    `LawfulBasisConfig.apply` stringifies it to match the schema (`body` is
+    `type: string`) and `encoding: "json"`. Tests decode it back to assert on
+    its contents.
+    """
+    assert isinstance(attachment["body"], str), "body must be a JSON string, not an object"
+    return json.loads(attachment["body"])
 
 
 # -- the refusal to invent -------------------------------------------------
@@ -59,7 +73,10 @@ def test_emitted_attachment_is_found_by_the_library():
 
     found = vcon.find_lawful_basis_attachments()
     assert len(found) == 1
-    assert found[0]["body"]["lawful_basis"] == "consent"
+    assert body_of(found[0])["lawful_basis"] == "consent"
+    assert found[0]["party"] == 0
+    assert found[0]["dialog"] == 0
+    assert found[0]["encoding"] == "json"
 
 
 def test_emitted_attachment_keeps_the_vcon_valid():
@@ -104,7 +121,7 @@ def test_all_purposes_are_granted():
         purposes=["recording", "transcription", "analysis"],
     ).apply(vcon)
 
-    grants = vcon.find_lawful_basis_attachments()[0]["body"]["purpose_grants"]
+    grants = body_of(vcon.find_lawful_basis_attachments()[0])["purpose_grants"]
     assert [g["purpose"] for g in grants] == ["recording", "transcription", "analysis"]
     assert all(g["granted"] and g["granted_at"] for g in grants)
 
@@ -117,7 +134,7 @@ def test_justification_survives_in_metadata():
         justification="Carrier-side recording; controller manages consent.",
     ).apply(vcon)
 
-    body = vcon.find_lawful_basis_attachments()[0]["body"]
+    body = body_of(vcon.find_lawful_basis_attachments()[0])
     assert "controller manages consent" in body["metadata"]["justification"]
 
 
@@ -125,7 +142,7 @@ def test_expiration_is_carried_when_set():
     vcon = fresh_vcon()
     LawfulBasisConfig(lawful_basis="consent", expiration="2027-01-01T00:00:00+00:00").apply(vcon)
 
-    assert vcon.find_lawful_basis_attachments()[0]["body"]["expiration"] is not None
+    assert body_of(vcon.find_lawful_basis_attachments()[0])["expiration"] is not None
 
 
 # -- configuration ---------------------------------------------------------

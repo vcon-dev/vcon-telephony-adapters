@@ -30,6 +30,7 @@ library rather than hand-rolling it:
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
@@ -90,11 +91,17 @@ class LawfulBasisConfig:
             for purpose in self.purposes
         ]
 
-    def apply(self, vcon: Vcon, party_index: int | None = None) -> bool:
+    def apply(self, vcon: Vcon, party_index: int = 0, dialog_index: int = 0) -> bool:
         """Attach the configured basis. Returns False when none is configured.
 
         Delegates to `vcon-lib`, which owns the shape its own validator and
-        finder expect.
+        finder expect, then fixes the one thing it gets wrong: vcon-lib 0.9.6's
+        `add_lawful_basis_attachment` emits `body` as the attachment dict
+        itself (an object), not the JSON string `encoding: "json"` implies and
+        the vCon schema requires (`body` is `type: string` there). Every
+        adapter here produces exactly one dialog and references party 0 as
+        the recording's subject, so `party`/`dialog` default to 0 rather than
+        being left off.
         """
         if not self.enabled:
             return False
@@ -115,6 +122,12 @@ class LawfulBasisConfig:
             expiration=self.expiration,
             purpose_grants=self.purpose_grants(granted_at),
             party_index=party_index,
+            dialog_index=dialog_index,
             **extra,
         )
+
+        attachment = vcon.vcon_dict["attachments"][-1]
+        if not isinstance(attachment.get("body"), str):
+            attachment["body"] = json.dumps(attachment["body"])
+
         return True
