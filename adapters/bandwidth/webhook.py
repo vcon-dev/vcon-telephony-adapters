@@ -56,6 +56,8 @@ def create_app(config: BandwidthConfig) -> FastAPI:
             return True
 
         if not config.webhook_username or not config.webhook_password:
+            # Only reachable with ALLOW_UNSIGNED_WEBHOOKS=true: BandwidthConfig
+            # refuses to start otherwise when validation is on with no credentials.
             logger.warning("Webhook validation enabled but no credentials configured")
             return True
 

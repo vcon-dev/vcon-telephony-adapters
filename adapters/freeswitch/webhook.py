@@ -55,6 +55,8 @@ def create_app(config: FreeSwitchConfig) -> FastAPI:
             return True
 
         if not config.webhook_secret:
+            # Only reachable with ALLOW_UNSIGNED_WEBHOOKS=true: FreeSwitchConfig
+            # refuses to start otherwise when validation is on with no secret.
             logger.warning("Webhook validation enabled but no secret configured")
             return True
 

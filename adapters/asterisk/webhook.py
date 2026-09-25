@@ -56,6 +56,8 @@ def create_app(config: AsteriskConfig) -> FastAPI:
             return True
 
         if not config.webhook_secret:
+            # Only reachable with ALLOW_UNSIGNED_WEBHOOKS=true: AsteriskConfig
+            # refuses to start otherwise when validation is on with no secret.
             logger.warning("Webhook validation enabled but no secret configured")
             return True
 

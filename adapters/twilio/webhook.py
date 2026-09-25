@@ -60,6 +60,8 @@ def create_app(config: TwilioConfig) -> FastAPI:
             return True
 
         if not validator:
+            # Only reachable with ALLOW_UNSIGNED_WEBHOOKS=true: TwilioConfig
+            # refuses to start otherwise when validation is on with no auth token.
             logger.warning("Signature validation enabled but validator not configured")
             return True
 
