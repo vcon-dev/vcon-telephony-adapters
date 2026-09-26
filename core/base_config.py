@@ -5,6 +5,8 @@ import os
 
 from dotenv import load_dotenv
 
+from core.webhook_security import parse_tolerance_seconds
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,6 +121,20 @@ class BaseConfig:
                 "without verifying who sent them wherever a secret/key is not "
                 "configured. Do not run this in production."
             )
+
+        # --- Webhook timestamp replay window -----------------------------
+        # A valid signature only proves who sent a request, not when. A
+        # provider that signs a timestamp alongside the body (Telnyx,
+        # ElevenLabs) lets a receiver additionally reject requests whose
+        # timestamp has aged past this window, closing off indefinite replay
+        # of a captured, validly-signed webhook. Applies wherever an adapter
+        # has a signed timestamp to check; adapters without one ignore this.
+        # A per-platform override (e.g. TELNYX_WEBHOOK_TOLERANCE_SECONDS) wins
+        # over this shared value when set.
+        self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
+            os.getenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300"),
+            source="WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS",
+        )
 
     def get_headers(self) -> dict[str, str]:
         """Get HTTP headers for conserver requests."""
