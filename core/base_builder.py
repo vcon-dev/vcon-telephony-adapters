@@ -1,6 +1,5 @@
 """Base vCon builder with common functionality for all telephony adapters."""
 
-import base64
 import logging
 import shutil
 import tempfile
@@ -13,6 +12,7 @@ from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
 
+from .encoding import base64url_encode
 from .lawful_basis import LawfulBasisConfig
 from .media_publisher import AudioPublisher, PublishedAudio
 
@@ -260,9 +260,8 @@ class BaseVconBuilder(ABC):
             elif self.download_recordings and recording_data.recording_url:
                 audio_data = self._download_recording(recording_data)
                 if audio_data:
-                    audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-                    dialog_kwargs["body"] = audio_base64
-                    dialog_kwargs["encoding"] = "base64"
+                    dialog_kwargs["body"] = base64url_encode(audio_data)
+                    dialog_kwargs["encoding"] = "base64url"
                     dialog_kwargs["filename"] = filename
                 else:
                     logger.warning(
