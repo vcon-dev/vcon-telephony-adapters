@@ -40,18 +40,15 @@ from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
 
+from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
 
 
-def _base64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
 def _sha512_content_hash(data: bytes) -> str:
-    return "sha512-" + _base64url(hashlib.sha512(data).digest())
+    return "sha512-" + base64url_encode(hashlib.sha512(data).digest())
 
 
 def _epoch_to_iso(epoch_seconds: Any) -> str | None:
@@ -227,7 +224,7 @@ class ElevenLabsVconBuilder:
                     )
                     return None
             else:
-                dialog_kwargs["body"] = _base64url(audio_bytes)
+                dialog_kwargs["body"] = base64url_encode(audio_bytes)
                 dialog_kwargs["encoding"] = "base64url"
                 dialog_kwargs["content_hash"] = _sha512_content_hash(audio_bytes)
                 dialog_kwargs["filename"] = filename

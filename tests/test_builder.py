@@ -1,6 +1,5 @@
 """Comprehensive tests for vCon builder module."""
 
-import base64
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +10,7 @@ from adapters.twilio.builder import (
     TwilioVconBuilder as VconBuilder,
 )
 from core.base_builder import MIME_TYPES
+from core.encoding import base64url_encode
 
 # =============================================================================
 # TwilioRecordingData Tests
@@ -521,8 +521,8 @@ class TestVconBuilderDownload:
             vcon = builder_with_auth.build(data)
 
             dialog = vcon.dialog[0]
-            assert dialog["body"] == base64.b64encode(sample_audio_bytes).decode("utf-8")
-            assert dialog["encoding"] == "base64"
+            assert dialog["body"] == base64url_encode(sample_audio_bytes)
+            assert dialog["encoding"] == "base64url"
             assert dialog["filename"] == "RE123.wav"
 
     def test_download_failure_falls_back_to_url(self, builder_with_auth):
