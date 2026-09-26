@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 
 from core.poster import HttpPoster
 from core.tracker import StateTracker
+from core.webhook_security import is_timestamp_fresh
 
 from .builder import TelnyxRecordingData, TelnyxVconBuilder
 from .call_session import CallSessionStore
@@ -117,6 +118,20 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 public_key_bytes = base64.b64decode(config.telnyx_public_key)
                 public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
                 public_key.verify(signature_bytes, signed_payload)
+
+                # Signature checks out, so the timestamp is now authenticated:
+                # only after this point is it safe to trust it for a replay
+                # check. A validly-signed request whose timestamp has aged
+                # past the tolerance window is rejected the same way a badly
+                # signed one is (caller raises 403 either way), logged
+                # distinctly so an operator can tell replay from tampering.
+                if not is_timestamp_fresh(timestamp, config.webhook_timestamp_tolerance_seconds):
+                    logger.warning(
+                        "Telnyx webhook timestamp outside tolerance window "
+                        "(tolerance=%ss); rejecting as a possible replay",
+                        config.webhook_timestamp_tolerance_seconds,
+                    )
+                    return False
                 return True
             except ImportError:
                 if config.allow_unsigned_webhooks:

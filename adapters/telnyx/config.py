@@ -4,6 +4,7 @@ import logging
 import os
 
 from core.base_config import BaseConfig
+from core.webhook_security import parse_tolerance_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,14 @@ class TelnyxConfig(BaseConfig):
         )
         self.stream_url = os.getenv("TELNYX_STREAM_URL", "")
         self.stream_track = os.getenv("TELNYX_STREAM_TRACK", "both_tracks")
+
+        # Per-platform override of WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS. Wins
+        # over the shared value when set.
+        telnyx_tolerance_raw = os.getenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS")
+        if telnyx_tolerance_raw is not None:
+            self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
+                telnyx_tolerance_raw, source="TELNYX_WEBHOOK_TOLERANCE_SECONDS"
+            )
 
     def get_api_headers(self) -> dict:
         """Get headers for Telnyx API requests.

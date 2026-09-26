@@ -164,8 +164,17 @@ class TestTelnyxWebhook:
         assert response.status_code == 404
 
 
+FIXED_NOW = 1705312170.0
+
+
 class TestTelnyxWebhookValidation:
     """Tests for Telnyx webhook signature validation."""
+
+    @pytest.fixture(autouse=True)
+    def frozen_time(self, monkeypatch):
+        """Freeze core.webhook_security's clock so timestamp-tolerance checks
+        are deterministic instead of racing the real wall clock."""
+        monkeypatch.setattr("core.webhook_security.time.time", lambda: FIXED_NOW)
 
     @pytest.fixture
     def keypair(self):
@@ -243,6 +252,167 @@ class TestTelnyxWebhookValidation:
         signature = base64.b64encode(private_key.sign(signed_payload)).decode()
 
         app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 403
+
+
+class TestTelnyxWebhookTimestampReplay:
+    """The timestamp-age check runs only after the ed25519 signature verifies,
+    using the same fixed clock (FIXED_NOW) as the signed test timestamps."""
+
+    @pytest.fixture(autouse=True)
+    def frozen_time(self, monkeypatch):
+        monkeypatch.setattr("core.webhook_security.time.time", lambda: FIXED_NOW)
+
+    @pytest.fixture
+    def keypair(self):
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        private_key = Ed25519PrivateKey.generate()
+        public_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        return private_key, base64.b64encode(public_bytes).decode()
+
+    @pytest.fixture
+    def config_with_validation(self, monkeypatch, tmp_path, keypair):
+        _, public_key_b64 = keypair
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "true")
+        monkeypatch.setenv("TELNYX_PUBLIC_KEY", public_key_b64)
+        monkeypatch.setenv("TELNYX_TEXML_CALLBACK_TOKEN", "texml-token")
+        # Explicit for readability; matches BaseConfig's own default.
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300")
+        return TelnyxConfig()
+
+    def _signed_request(self, private_key, timestamp: str):
+        body = json.dumps({"data": {"event_type": "call.initiated", "payload": {}}}).encode()
+        signed_payload = f"{timestamp}|".encode() + body
+        signature = base64.b64encode(private_key.sign(signed_payload)).decode()
+        return body, signature
+
+    def test_fresh_timestamp_accepted(self, config_with_validation, keypair):
+        private_key, _ = keypair
+        timestamp = str(int(FIXED_NOW))
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 200
+
+    def test_stale_timestamp_rejected(self, config_with_validation, keypair):
+        """Correctly signed but one second past the tolerance window (300s + 1s old)."""
+        private_key, _ = keypair
+        timestamp = str(int(FIXED_NOW) - 301)
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 403
+
+    def test_future_timestamp_beyond_window_rejected(self, config_with_validation, keypair):
+        private_key, _ = keypair
+        timestamp = str(int(FIXED_NOW) + 301)
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 403
+
+    def test_boundary_exactly_at_tolerance_accepted(self, config_with_validation, keypair):
+        private_key, _ = keypair
+        timestamp = str(int(FIXED_NOW) - 300)
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 200
+
+    def test_non_numeric_timestamp_rejected(self, config_with_validation, keypair):
+        """A non-numeric Telnyx-Timestamp fails signature verification too (the
+        signed payload embeds it literally), but must also never be treated as
+        fresh."""
+        private_key, _ = keypair
+        timestamp = "not-a-timestamp"
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config_with_validation)
+        client = TestClient(app)
+        response = client.post(
+            "/webhook/recording",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Telnyx-Signature-Ed25519": signature,
+                "Telnyx-Timestamp": timestamp,
+            },
+        )
+        assert response.status_code == 403
+
+    def test_per_platform_tolerance_override_applies(self, monkeypatch, tmp_path, keypair):
+        """TELNYX_WEBHOOK_TOLERANCE_SECONDS overrides the shared default: a
+        timestamp stale under the wider shared window is rejected under a
+        tighter per-platform one."""
+        private_key, public_key_b64 = keypair
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state.json"))
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "true")
+        monkeypatch.setenv("TELNYX_PUBLIC_KEY", public_key_b64)
+        monkeypatch.setenv("TELNYX_TEXML_CALLBACK_TOKEN", "texml-token")
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300")
+        monkeypatch.setenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", "10")
+        config = TelnyxConfig()
+        assert config.webhook_timestamp_tolerance_seconds == 10
+
+        timestamp = str(int(FIXED_NOW) - 60)  # within 300s shared, outside 10s override
+        body, signature = self._signed_request(private_key, timestamp)
+
+        app = create_app(config)
         client = TestClient(app)
         response = client.post(
             "/webhook/recording",
