@@ -52,6 +52,9 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    # Validates built vCons against the WG JSON Schema in
+    # tests/schema/vcon_json_schema.json (CON-1105 recording-set tests).
+    "jsonschema>=4.0.0",
 ]
 all = [
     "vcon-telephony-adapters[s3,dev]",

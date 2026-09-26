@@ -9,6 +9,20 @@ written directly against vcon-lib but follows the same conventions:
 `LawfulBasisConfig` for the lawful-basis attachment, the configured
 `AudioPublisher` for re-hosting audio instead of always embedding it,
 `mediatype` throughout, and the draft-04 attachment-field backfill.
+
+CON-1105 (recording-set): when a call has more than one recording segment,
+draft-ietf-vcon-vcon-core-04 Sec. 4.3.1.2/4.3.6/4.3.7 says the per-segment
+"recording" dialogs SHOULD be grouped under a "recording-set" dialog whose
+own `recordings` array lists their indices, and whose `start`/`duration`/
+`parties` describe the call as a whole rather than any one segment; each
+member recording SHOULD carry a `recording_set` index back to it. The
+installed vcon-lib (pypi `vcon` 0.9.6) predates that dialog type -
+`Dialog.VALID_TYPES` doesn't include "recording-set" - so it is added to the
+class below at import time. `recordings`/`recording_set` are not in
+vcon-lib's `_ALLOWED_DIALOG_PROPERTIES` either, but `Vcon.build_new()` uses
+the default (non-strict) property-handling mode, which keeps non-standard
+Dialog properties as-is, so both fields still make it into the built vCon
+dict unfiltered.
 """
 
 from __future__ import annotations
@@ -19,6 +33,7 @@ import logging
 import shutil
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +46,11 @@ from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
+
+# See the CON-1105 module docstring note above: vcon-lib 0.9.6 doesn't yet
+# know about the draft-04 "recording-set" dialog type.
+if "recording-set" not in Dialog.VALID_TYPES:
+    Dialog.VALID_TYPES.append("recording-set")
 
 
 @dataclass
@@ -133,6 +153,9 @@ class SignalWireVconBuilder:
                             encoding="json",
                         )
 
+            if len(data.recordings) > 1:
+                self._add_recording_set(vcon, data.recordings)
+
             vcon.add_tag("source", self.ADAPTER_SOURCE)
             if data.call_sid:
                 vcon.add_tag("call_sid", data.call_sid)
@@ -210,6 +233,58 @@ class SignalWireVconBuilder:
             party=0,
             dialog=dialog_idx,
         )
+
+    def _add_recording_set(self, vcon: Vcon, recordings: list[dict[str, Any]]) -> None:
+        """Append a "recording-set" dialog grouping the call's segment
+        recordings, per draft-ietf-vcon-vcon-core-04 Sec. 4.3.1.2/4.3.6/4.3.7.
+
+        Every recording dialog for this call was already appended (in the
+        same order as `recordings`) before this is called, so their dialog
+        indices are simply `range(len(recordings))`; the recording-set dialog
+        itself is appended last, one index past them.
+        """
+        recording_dialog_indices = list(range(len(recordings)))
+        set_dialog_idx = len(vcon.vcon_dict["dialog"])
+
+        starts = [_parse_rfc2822_to_iso(recording.get("date_created")) for recording in recordings]
+        parsed_starts = [datetime.fromisoformat(s) for s in starts if s]
+        call_start = min(parsed_starts).isoformat() if parsed_starts else None
+
+        durations = [_as_float(recording.get("duration")) for recording in recordings]
+        call_duration: float | None = None
+        if parsed_starts and all(
+            s and d is not None for s, d in zip(starts, durations, strict=True)
+        ):
+            ends = [
+                datetime.fromisoformat(s) + timedelta(seconds=d)
+                for s, d in zip(starts, durations, strict=True)
+                if s and d is not None
+            ]
+            call_duration = (max(ends) - min(parsed_starts)).total_seconds()
+
+        dialog_kwargs: dict[str, Any] = {
+            "type": "recording-set",
+            "recordings": recording_dialog_indices,
+            # Both recording dialogs always carry parties=[0, 1] (see
+            # _add_recording); the set's parties SHOULD list every party
+            # known to the call as a whole (Sec. 4.3.4), which here is the
+            # same superset regardless of which segments actually recorded.
+            "parties": [0, 1],
+        }
+        if call_start:
+            dialog_kwargs["start"] = call_start
+        else:
+            # Dialog.__init__ requires `start`; fall back to vcon creation
+            # time rather than fabricating a call start we don't have.
+            dialog_kwargs["start"] = vcon.created_at
+        if call_duration is not None:
+            dialog_kwargs["duration"] = call_duration
+
+        vcon.add_dialog(Dialog(**dialog_kwargs))
+        _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
+
+        for idx in recording_dialog_indices:
+            vcon.vcon_dict["dialog"][idx]["recording_set"] = set_dialog_idx
 
     def _download_and_publish(self, recording_url: str, filename: str) -> tuple[str, str] | None:
         try:
