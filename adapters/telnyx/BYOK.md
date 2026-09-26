@@ -135,7 +135,7 @@ from either path describes a call identically.
 
 ## Keep the vCons thin
 
-By default the adapter inlines audio as base64, which makes a vCon roughly 1.3x
+By default the adapter inlines audio as base64url, which makes a vCon roughly 1.3x
 the size of the recording. A twenty-second call becomes an 800 KB JSON object; an
 hour-long one becomes unusable. Re-host instead and the dialog carries a `url`
 plus a `content_hash` — about **800x smaller**, and still verifiable.

@@ -581,7 +581,7 @@ All adapters share these common configuration options:
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
-| `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64), `filesystem`, or `s3` |
+| `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64url), `filesystem`, or `s3` |
 | `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
 | `MEDIA_FILESYSTEM_PATH` | Only if `MEDIA_BACKEND=filesystem` | - | Directory to write published recordings to |
 | `MEDIA_S3_BUCKET` | Only if `MEDIA_BACKEND=s3` | - | S3 (or S3-compatible) bucket for published recordings. Needs the `s3` extra: `pip install ".[s3]"` |
@@ -667,7 +667,7 @@ All adapters create vCons with this structure:
 
 ```json
 {
-    "vcon": "0.0.1",
+    "vcon": "0.4.0",
     "uuid": "auto-generated-uuid",
     "created_at": "2025-01-21T10:30:00+00:00",
     "parties": [
@@ -681,9 +681,25 @@ All adapters create vCons with this structure:
             "duration": 120.0,
             "parties": [0, 1],
             "originator": 0,
-            "mimetype": "audio/wav",
-            "body": "base64-encoded-audio-data",
-            "encoding": "base64"
+            "mediatype": "audio/wav",
+            "body": "base64url-encoded-audio-data",
+            "encoding": "base64url"
+        }
+    ],
+    "attachments": [
+        {
+            "purpose": "lawful_basis",
+            "start": "2025-01-21T10:30:00+00:00",
+            "party": 0,
+            "dialog": 0,
+            "mediatype": "application/json",
+            "encoding": "json",
+            "body": {
+                "lawful_basis": "consent",
+                "purpose_grants": [
+                    {"purpose": "recording", "granted": true, "granted_at": "2025-01-21T10:30:00+00:00"}
+                ]
+            }
         }
     ]
 }
