@@ -18,6 +18,7 @@ import logging
 import os
 
 from core.base_config import BaseConfig
+from core.webhook_security import parse_tolerance_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +45,18 @@ class ElevenLabsConfig(BaseConfig):
             "yes",
         )
 
-        # Reject webhooks whose timestamp is older than this, to bound replay
-        # exposure. ElevenLabs' own SDK helpers validate the timestamp too;
-        # since this adapter verifies the signature by hand (see webhook.py),
-        # it re-implements that check.
-        self.webhook_tolerance_seconds = int(
-            os.getenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "1800")
-        )
+        # Reject webhooks whose timestamp is too old (or too far in the
+        # future), to bound replay exposure. ElevenLabs' own SDK helpers
+        # validate the timestamp too; since this adapter verifies the
+        # signature by hand (see webhook.py), it re-implements that check
+        # using the shared core.webhook_security helper. Defaults to the
+        # shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS (see BaseConfig);
+        # ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS overrides it when set.
+        elevenlabs_tolerance_raw = os.getenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS")
+        if elevenlabs_tolerance_raw is not None:
+            self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
+                elevenlabs_tolerance_raw, source="ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS"
+            )
 
         if self.validate_webhook and not self.webhook_secret:
             if self.allow_unsigned_webhooks:

@@ -124,6 +124,40 @@ class TestElevenLabsWebhook:
         )
         assert response.status_code == 401
 
+    def test_future_timestamp_beyond_window_rejected(self, config):
+        app = create_app(config)
+        client = TestClient(app)
+        body = json.dumps(make_event()).encode()
+        future_timestamp = int(time.time()) + 999999
+        response = client.post(
+            "/webhook/post-call",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "elevenlabs-signature": sign(body, timestamp=future_timestamp),
+            },
+        )
+        assert response.status_code == 401
+
+    def test_non_numeric_timestamp_rejected(self, config):
+        app = create_app(config)
+        client = TestClient(app)
+        body = json.dumps(make_event()).encode()
+        # Sign over the literal "t=not-a-number" header value so the HMAC
+        # itself checks out; only the timestamp-freshness check should reject.
+        raw_ts = "not-a-number"
+        signed_payload = f"{raw_ts}.".encode() + body
+        digest = hmac.new(SECRET.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        response = client.post(
+            "/webhook/post-call",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "elevenlabs-signature": f"t={raw_ts},v0={digest}",
+            },
+        )
+        assert response.status_code == 401
+
     def test_missing_secret_refuses_to_start(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
         monkeypatch.setenv("STATE_FILE", str(tmp_path / "state3.json"))
@@ -154,3 +188,64 @@ class TestElevenLabsWebhook:
                 "/webhook/post-call", content=body, headers={"content-type": "application/json"}
             )
             assert response.status_code == 200
+
+
+FIXED_NOW = 1_705_312_170
+
+
+class TestElevenLabsWebhookTimestampBoundary:
+    """Deterministic boundary checks against a frozen clock, exercising
+    core.webhook_security.is_timestamp_fresh via the real HMAC + freshness path."""
+
+    @pytest.fixture(autouse=True)
+    def frozen_time(self, monkeypatch):
+        monkeypatch.setattr("core.webhook_security.time.time", lambda: float(FIXED_NOW))
+
+    @pytest.fixture
+    def config(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state-boundary.json"))
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_SECRET", SECRET)
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300")
+        monkeypatch.delenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", raising=False)
+        return ElevenLabsConfig()
+
+    def _post(self, config, timestamp):
+        app = create_app(config)
+        client = TestClient(app)
+        body = json.dumps(make_event()).encode()
+        return client.post(
+            "/webhook/post-call",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "elevenlabs-signature": sign(body, timestamp=timestamp),
+            },
+        )
+
+    def test_fresh_timestamp_accepted(self, config):
+        response = self._post(config, FIXED_NOW)
+        assert response.status_code == 200
+
+    def test_boundary_exactly_at_tolerance_accepted(self, config):
+        response = self._post(config, FIXED_NOW - 300)
+        assert response.status_code == 200
+
+    def test_one_second_past_tolerance_rejected(self, config):
+        response = self._post(config, FIXED_NOW - 301)
+        assert response.status_code == 401
+
+    def test_per_platform_override_applies(self, monkeypatch, tmp_path):
+        """ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS wins over the shared value: a
+        timestamp fresh under the wide shared window is rejected under a
+        tighter per-platform override."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("STATE_FILE", str(tmp_path / "state-override.json"))
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_SECRET", SECRET)
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300")
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "10")
+        config = ElevenLabsConfig()
+        assert config.webhook_timestamp_tolerance_seconds == 10
+
+        response = self._post(config, FIXED_NOW - 60)
+        assert response.status_code == 401

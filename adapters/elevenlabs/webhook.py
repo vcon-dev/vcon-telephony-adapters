@@ -20,12 +20,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import time
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from core.poster import HttpPoster
 from core.tracker import StateTracker
+from core.webhook_security import is_timestamp_fresh
 
 from .builder import ElevenLabsVconBuilder
 from .config import ElevenLabsConfig
@@ -86,20 +86,28 @@ def create_app(config: ElevenLabsConfig) -> FastAPI:
         if not timestamp or not signature:
             return False
 
-        try:
-            timestamp_int = int(timestamp)
-        except ValueError:
-            return False
-
-        if abs(time.time() - timestamp_int) > config.webhook_tolerance_seconds:
-            logger.warning("ElevenLabs webhook timestamp outside tolerance window")
-            return False
-
         signed_payload = f"{timestamp}.".encode() + body
         expected = hmac.new(
             config.webhook_secret.encode("utf-8"), signed_payload, hashlib.sha256
         ).hexdigest()
-        return hmac.compare_digest(expected, signature)
+        if not hmac.compare_digest(expected, signature):
+            return False
+
+        # Signature checks out, so the timestamp is now authenticated: only
+        # after this point is it safe to trust it for a replay check. A
+        # validly-signed request whose timestamp has aged past the tolerance
+        # window (in either direction) is rejected the same way a badly
+        # signed one is, logged distinctly so an operator can tell replay
+        # from tampering.
+        if not is_timestamp_fresh(timestamp, config.webhook_timestamp_tolerance_seconds):
+            logger.warning(
+                "ElevenLabs webhook timestamp outside tolerance window "
+                "(tolerance=%ss); rejecting as a possible replay",
+                config.webhook_timestamp_tolerance_seconds,
+            )
+            return False
+
+        return True
 
     @app.get("/health")
     async def health_check():

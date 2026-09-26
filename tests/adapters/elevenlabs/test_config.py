@@ -11,7 +11,9 @@ class TestElevenLabsConfig:
         monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
         config = ElevenLabsConfig()
         assert config.conserver_url == "https://conserver.example.com/vcon"
-        assert config.webhook_tolerance_seconds == 1800
+        # Defaults to the shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS (see
+        # BaseConfig) when ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS is unset.
+        assert config.webhook_timestamp_tolerance_seconds == 300
 
     def test_missing_conserver_url(self, monkeypatch):
         monkeypatch.delenv("CONSERVER_URL", raising=False)
@@ -43,4 +45,36 @@ class TestElevenLabsConfig:
         monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
         monkeypatch.setenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "60")
         config = ElevenLabsConfig()
-        assert config.webhook_tolerance_seconds == 60
+        assert config.webhook_timestamp_tolerance_seconds == 60
+
+    def test_shared_tolerance_applies_without_override(self, monkeypatch):
+        """WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS (shared) applies when the
+        per-platform ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS override is unset."""
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
+        monkeypatch.delenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", raising=False)
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "45")
+        config = ElevenLabsConfig()
+        assert config.webhook_timestamp_tolerance_seconds == 45
+
+    def test_override_wins_over_shared_tolerance(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "45")
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "60")
+        config = ElevenLabsConfig()
+        assert config.webhook_timestamp_tolerance_seconds == 60
+
+    def test_invalid_tolerance_refuses_to_start(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "not-a-number")
+        with pytest.raises(ValueError, match="ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS"):
+            ElevenLabsConfig()
+
+    def test_negative_tolerance_refuses_to_start(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_ELEVENLABS_WEBHOOK", "false")
+        monkeypatch.setenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS", "-5")
+        with pytest.raises(ValueError, match="ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS"):
+            ElevenLabsConfig()
