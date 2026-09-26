@@ -122,12 +122,12 @@ def test_both_parties_present_as_tel_uris(built_vcon):
 
 
 def test_audio_is_embedded_and_decodes(built_vcon):
-    """A dialog that claims base64 audio should actually contain a WAV."""
-    import base64
+    """A dialog that claims base64url audio should actually contain a WAV."""
+    from core.encoding import base64url_decode
 
     dialog = built_vcon.to_dict()["dialog"][0]
-    assert dialog["encoding"] == "base64"
-    raw = base64.b64decode(dialog["body"])
+    assert dialog["encoding"] == "base64url"
+    raw = base64url_decode(dialog["body"])
     assert raw[:4] == b"RIFF" and raw[8:12] == b"WAVE", "body is not a WAV"
 
 
