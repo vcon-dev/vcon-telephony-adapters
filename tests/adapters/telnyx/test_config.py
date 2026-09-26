@@ -152,3 +152,53 @@ class TestTelnyxConfigFailClosed:
 
         assert config.telnyx_public_key == "PUBLIC_KEY_BASE64"
         assert config.texml_callback_token == "texml-token"
+
+
+class TestTelnyxWebhookTolerance:
+    """Tests for TELNYX_WEBHOOK_TOLERANCE_SECONDS, the per-platform override of
+    the shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS (see BaseConfig)."""
+
+    def test_defaults_to_shared_value(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "false")
+        monkeypatch.delenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", raising=False)
+
+        config = TelnyxConfig()
+
+        assert config.webhook_timestamp_tolerance_seconds == 300
+
+    def test_shared_value_applies_without_override(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "false")
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "45")
+        monkeypatch.delenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", raising=False)
+
+        config = TelnyxConfig()
+
+        assert config.webhook_timestamp_tolerance_seconds == 45
+
+    def test_override_wins_over_shared_value(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "false")
+        monkeypatch.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "45")
+        monkeypatch.setenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", "90")
+
+        config = TelnyxConfig()
+
+        assert config.webhook_timestamp_tolerance_seconds == 90
+
+    def test_invalid_override_refuses_to_start(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "false")
+        monkeypatch.setenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", "not-a-number")
+
+        with pytest.raises(ValueError, match="TELNYX_WEBHOOK_TOLERANCE_SECONDS"):
+            TelnyxConfig()
+
+    def test_negative_override_refuses_to_start(self, monkeypatch):
+        monkeypatch.setenv("CONSERVER_URL", "https://conserver.example.com/vcon")
+        monkeypatch.setenv("VALIDATE_TELNYX_WEBHOOK", "false")
+        monkeypatch.setenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS", "-1")
+
+        with pytest.raises(ValueError, match="TELNYX_WEBHOOK_TOLERANCE_SECONDS"):
+            TelnyxConfig()

@@ -46,6 +46,7 @@ def clean_env(monkeypatch):
         "RECORDING_FORMAT",
         "STATE_FILE",
         "INGRESS_LISTS",
+        "WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS",
     ]
     for var in env_vars:
         monkeypatch.delenv(var, raising=False)

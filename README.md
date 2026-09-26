@@ -301,6 +301,7 @@ RECORDING_FORMAT=wav
 | `TELNYX_PUBLIC_KEY` | Yes** | - | Public key for Call Control webhook signature validation |
 | `TELNYX_TEXML_CALLBACK_TOKEN` | Yes** | - | Shared-secret token that protects `/webhook/texml-recording` |
 | `VALIDATE_TELNYX_WEBHOOK` | No | `true` | Enable webhook validation (both Call Control signatures and the TeXML token) |
+| `TELNYX_WEBHOOK_TOLERANCE_SECONDS` | No | `300` | Replay-window tolerance for `Telnyx-Timestamp` (Telnyx's own provider default; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 
 \* Required when `DOWNLOAD_RECORDINGS=true`.
 \** Required when `VALIDATE_TELNYX_WEBHOOK=true` (the default): the adapter refuses to
@@ -495,7 +496,7 @@ DOWNLOAD_RECORDINGS=true
 |----------|----------|---------|-------------|
 | `ELEVENLABS_WEBHOOK_SECRET` | Yes* | - | HMAC signing secret from the ElevenLabs post-call webhook config |
 | `VALIDATE_ELEVENLABS_WEBHOOK` | No | `true` | Enable `elevenlabs-signature` HMAC validation |
-| `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS` | No | `1800` | Reject webhooks whose timestamp is older than this |
+| `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS` | No | `1800` | Replay-window tolerance for the `t=` timestamp (ElevenLabs' own provider default, matching its SDK verifier; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 | `ELEVENLABS_API_KEY` | No | - | Only needed to fetch additional conversation detail from the API |
 
 \* Required when `VALIDATE_ELEVENLABS_WEBHOOK=true` (the default): the adapter
@@ -581,6 +582,7 @@ All adapters share these common configuration options:
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | unset | Shared replay-window tolerance override for adapters with a signed timestamp (Telnyx, ElevenLabs); applies only when explicitly set. See [Webhook replay window](#webhook-replay-window) |
 | `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64url), `filesystem`, or `s3` |
 | `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
 | `MEDIA_FILESYSTEM_PATH` | Only if `MEDIA_BACKEND=filesystem` | - | Directory to write published recordings to |
@@ -625,6 +627,44 @@ ALLOW_UNSIGNED_WEBHOOKS=true
 This is a loud, explicit opt-out: it logs a warning at startup and again wherever a
 secret is actually missing, but it lets every adapter start and accept unauthenticated
 webhooks. Do not set this in production.
+
+### Webhook replay window
+
+A valid signature only proves who sent a request, not when: without also checking the
+age of a signed timestamp, a captured, validly-signed webhook stays replayable
+indefinitely. Telnyx (`Telnyx-Timestamp`) and ElevenLabs (the `t=` field of
+`elevenlabs-signature`) both sign a Unix-seconds timestamp alongside the body, so both
+adapters check it, in `core/webhook_security.py`, once signature verification succeeds.
+The check rejects a timestamp too far in the past *or* too far in the future, and
+rejects outright if the timestamp is missing or non-numeric. It runs after signature
+verification (so only an authenticated timestamp is trusted), returns the same error
+response as a bad signature, and logs a distinct message so an operator can tell replay
+from tampering. It is skipped, along with signature verification itself, whenever
+`ALLOW_UNSIGNED_WEBHOOKS=true` bypasses signature checks for that adapter.
+
+Each adapter resolves its tolerance in this order:
+
+1. its own per-platform override, if set (`TELNYX_WEBHOOK_TOLERANCE_SECONDS`,
+   `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS`);
+2. else the shared `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`, if it is explicitly set in
+   the environment;
+3. else that adapter's own provider default: **300s (5 minutes) for Telnyx**, **1800s
+   (30 minutes) for ElevenLabs**, matching the tolerance ElevenLabs' own SDK verifier
+   defaults to. The two provider defaults differ deliberately: setting the shared
+   variable is opt-in, so a deployment that never touches either tolerance setting
+   keeps the behavior each adapter always had, rather than having ElevenLabs silently
+   tightened to Telnyx's window and risking rejection of valid delayed deliveries.
+
+All three settings (the shared one and both overrides) refuse to start the adapter if
+set to anything other than a positive integer.
+
+Of the remaining adapters, none currently has a signed timestamp to check: Twilio's
+`X-Twilio-Signature` is an HMAC over the URL and form parameters with no timestamp
+component; Asterisk and FreeSWITCH sign the raw body alone with a shared-secret HMAC;
+Bandwidth uses HTTP Basic Auth; VAPI compares a static shared-secret header; and the
+Telnyx TeXML `recordingStatusCallback` path is gated by a static token in the callback
+URL, not a signature. SignalWire polls rather than receiving webhooks, and Pipecat has
+no inbound request at all.
 
 ## API Endpoints
 

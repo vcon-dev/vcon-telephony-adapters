@@ -99,6 +99,34 @@ class TestConfigDefaults:
         """Webhook URL defaults to None."""
         assert minimal_config.webhook_url is None
 
+    def test_webhook_timestamp_tolerance_default(self, minimal_config):
+        """WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS defaults to 300."""
+        assert minimal_config.webhook_timestamp_tolerance_seconds == 300
+
+
+class TestConfigWebhookTimestampTolerance:
+    """Tests for the shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS setting (BaseConfig)."""
+
+    def test_custom_value(self, minimal_env):
+        minimal_env.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "60")
+        config = Config()
+        assert config.webhook_timestamp_tolerance_seconds == 60
+
+    def test_non_numeric_refuses_to_start(self, minimal_env):
+        minimal_env.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "not-a-number")
+        with pytest.raises(ValueError, match="WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS"):
+            Config()
+
+    def test_zero_refuses_to_start(self, minimal_env):
+        minimal_env.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "0")
+        with pytest.raises(ValueError, match="WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS"):
+            Config()
+
+    def test_negative_refuses_to_start(self, minimal_env):
+        minimal_env.setenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "-10")
+        with pytest.raises(ValueError, match="WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS"):
+            Config()
+
 
 class TestConfigCustomValues:
     """Tests for custom configuration values."""
