@@ -125,13 +125,19 @@ class TelnyxConfig(BaseConfig):
         self.stream_url = os.getenv("TELNYX_STREAM_URL", "")
         self.stream_track = os.getenv("TELNYX_STREAM_TRACK", "both_tracks")
 
-        # Per-platform override of WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS. Wins
-        # over the shared value when set.
+        # Webhook timestamp replay-window resolution order:
+        #   1. TELNYX_WEBHOOK_TOLERANCE_SECONDS, if set;
+        #   2. else WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, if explicitly set;
+        #   3. else Telnyx's own provider default, 300s (same as the shared
+        #      default, so this is a no-op today, but kept explicit rather
+        #      than relying on that coincidence).
         telnyx_tolerance_raw = os.getenv("TELNYX_WEBHOOK_TOLERANCE_SECONDS")
         if telnyx_tolerance_raw is not None:
             self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
                 telnyx_tolerance_raw, source="TELNYX_WEBHOOK_TOLERANCE_SECONDS"
             )
+        elif not self.webhook_timestamp_tolerance_explicitly_set:
+            self.webhook_timestamp_tolerance_seconds = 300
 
     def get_api_headers(self) -> dict:
         """Get headers for Telnyx API requests.

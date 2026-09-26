@@ -129,10 +129,20 @@ class BaseConfig:
         # timestamp has aged past this window, closing off indefinite replay
         # of a captured, validly-signed webhook. Applies wherever an adapter
         # has a signed timestamp to check; adapters without one ignore this.
-        # A per-platform override (e.g. TELNYX_WEBHOOK_TOLERANCE_SECONDS) wins
-        # over this shared value when set.
+        #
+        # Resolution order, per adapter (see TelnyxConfig/ElevenLabsConfig):
+        #   1. a per-platform override (e.g. TELNYX_WEBHOOK_TOLERANCE_SECONDS), if set;
+        #   2. else this shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, if explicitly set;
+        #   3. else that adapter's own provider default (not this one).
+        #
+        # webhook_timestamp_tolerance_explicitly_set records whether step 2
+        # applies at all, so a subclass can tell "shared value set to 300" apart
+        # from "shared value defaulted to 300" and fall through to its own
+        # provider default in the latter case.
+        raw_shared_tolerance = os.getenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS")
+        self.webhook_timestamp_tolerance_explicitly_set = raw_shared_tolerance is not None
         self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
-            os.getenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300"),
+            raw_shared_tolerance if raw_shared_tolerance is not None else "300",
             source="WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS",
         )
 

@@ -301,7 +301,7 @@ RECORDING_FORMAT=wav
 | `TELNYX_PUBLIC_KEY` | Yes** | - | Public key for Call Control webhook signature validation |
 | `TELNYX_TEXML_CALLBACK_TOKEN` | Yes** | - | Shared-secret token that protects `/webhook/texml-recording` |
 | `VALIDATE_TELNYX_WEBHOOK` | No | `true` | Enable webhook validation (both Call Control signatures and the TeXML token) |
-| `TELNYX_WEBHOOK_TOLERANCE_SECONDS` | No | `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` (`300`) | Per-platform override of the replay-window tolerance for `Telnyx-Timestamp`. See [Webhook authentication](#webhook-authentication) |
+| `TELNYX_WEBHOOK_TOLERANCE_SECONDS` | No | `300` | Replay-window tolerance for `Telnyx-Timestamp` (Telnyx's own provider default; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 
 \* Required when `DOWNLOAD_RECORDINGS=true`.
 \** Required when `VALIDATE_TELNYX_WEBHOOK=true` (the default): the adapter refuses to
@@ -486,7 +486,7 @@ ELEVENLABS_WEBHOOK_SECRET=your_webhook_signing_secret
 # Optional
 PORT=8087
 VALIDATE_ELEVENLABS_WEBHOOK=true
-ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS=300
+ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS=1800
 DOWNLOAD_RECORDINGS=true
 ```
 
@@ -496,7 +496,7 @@ DOWNLOAD_RECORDINGS=true
 |----------|----------|---------|-------------|
 | `ELEVENLABS_WEBHOOK_SECRET` | Yes* | - | HMAC signing secret from the ElevenLabs post-call webhook config |
 | `VALIDATE_ELEVENLABS_WEBHOOK` | No | `true` | Enable `elevenlabs-signature` HMAC validation |
-| `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS` | No | `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` (`300`) | Per-platform override of the replay-window tolerance for the `t=` timestamp. See [Webhook authentication](#webhook-authentication) |
+| `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS` | No | `1800` | Replay-window tolerance for the `t=` timestamp (ElevenLabs' own provider default, matching its SDK verifier; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 | `ELEVENLABS_API_KEY` | No | - | Only needed to fetch additional conversation detail from the API |
 
 \* Required when `VALIDATE_ELEVENLABS_WEBHOOK=true` (the default): the adapter
@@ -582,7 +582,7 @@ All adapters share these common configuration options:
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
-| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | `300` | Replay-window tolerance for adapters with a signed timestamp (Telnyx, ElevenLabs). See [Webhook authentication](#webhook-authentication) |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | unset | Shared replay-window tolerance override for adapters with a signed timestamp (Telnyx, ElevenLabs); applies only when explicitly set. See [Webhook replay window](#webhook-replay-window) |
 | `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64url), `filesystem`, or `s3` |
 | `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
 | `MEDIA_FILESYSTEM_PATH` | Only if `MEDIA_BACKEND=filesystem` | - | Directory to write published recordings to |
@@ -642,11 +642,21 @@ response as a bad signature, and logs a distinct message so an operator can tell
 from tampering. It is skipped, along with signature verification itself, whenever
 `ALLOW_UNSIGNED_WEBHOOKS=true` bypasses signature checks for that adapter.
 
-The shared default is `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS=300` (5 minutes). Each
-adapter with a signed timestamp has its own override
-(`TELNYX_WEBHOOK_TOLERANCE_SECONDS`, `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS`) that wins
-over the shared value when set. Both settings refuse to start the adapter if set to
-anything other than a positive integer.
+Each adapter resolves its tolerance in this order:
+
+1. its own per-platform override, if set (`TELNYX_WEBHOOK_TOLERANCE_SECONDS`,
+   `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS`);
+2. else the shared `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`, if it is explicitly set in
+   the environment;
+3. else that adapter's own provider default: **300s (5 minutes) for Telnyx**, **1800s
+   (30 minutes) for ElevenLabs**, matching the tolerance ElevenLabs' own SDK verifier
+   defaults to. The two provider defaults differ deliberately: setting the shared
+   variable is opt-in, so a deployment that never touches either tolerance setting
+   keeps the behavior each adapter always had, rather than having ElevenLabs silently
+   tightened to Telnyx's window and risking rejection of valid delayed deliveries.
+
+All three settings (the shared one and both overrides) refuse to start the adapter if
+set to anything other than a positive integer.
 
 Of the remaining adapters, none currently has a signed timestamp to check: Twilio's
 `X-Twilio-Signature` is an HMAC over the URL and form parameters with no timestamp

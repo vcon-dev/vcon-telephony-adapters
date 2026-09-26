@@ -49,14 +49,25 @@ class ElevenLabsConfig(BaseConfig):
         # future), to bound replay exposure. ElevenLabs' own SDK helpers
         # validate the timestamp too; since this adapter verifies the
         # signature by hand (see webhook.py), it re-implements that check
-        # using the shared core.webhook_security helper. Defaults to the
-        # shared WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS (see BaseConfig);
-        # ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS overrides it when set.
+        # using the shared core.webhook_security helper.
+        #
+        # Resolution order:
+        #   1. ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS, if set;
+        #   2. else WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, if explicitly set;
+        #   3. else ElevenLabs' own provider default, 1800s (30 minutes) —
+        #      matching the tolerance ElevenLabs' own SDK verifier defaults
+        #      to, so a deployment that never touches either tolerance
+        #      setting keeps accepting the same delayed deliveries it always
+        #      has. This is deliberately NOT the shared 300s default: that
+        #      would silently tighten the window for anyone who hasn't
+        #      opted in.
         elevenlabs_tolerance_raw = os.getenv("ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS")
         if elevenlabs_tolerance_raw is not None:
             self.webhook_timestamp_tolerance_seconds = parse_tolerance_seconds(
                 elevenlabs_tolerance_raw, source="ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS"
             )
+        elif not self.webhook_timestamp_tolerance_explicitly_set:
+            self.webhook_timestamp_tolerance_seconds = 1800
 
         if self.validate_webhook and not self.webhook_secret:
             if self.allow_unsigned_webhooks:
