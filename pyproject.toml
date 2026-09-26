@@ -71,7 +71,7 @@ Issues = "https://github.com/vcon-dev/vcon-telephony-adapters/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "adapters*", "twilio_adapter*"]
+include = ["core*", "adapters*"]
 
 [tool.black]
 line-length = 100
@@ -101,5 +101,5 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=core --cov=adapters --cov=twilio_adapter --cov-report=term-missing"
+addopts = "-v --cov=core --cov=adapters --cov-report=term-missing"
 asyncio_mode = "auto"
