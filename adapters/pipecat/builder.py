@@ -13,7 +13,6 @@ it, `mediatype` throughout, and the draft-04 attachment-field backfill.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -28,6 +27,7 @@ from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
 
+from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
 
@@ -60,12 +60,8 @@ class PipecatConversationState:
     tags: list[str] = field(default_factory=list)
 
 
-def _base64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
 def _sha512_content_hash(data: bytes) -> str:
-    return "sha512-" + _base64url(hashlib.sha512(data).digest())
+    return "sha512-" + base64url_encode(hashlib.sha512(data).digest())
 
 
 def _strip_empty_placeholders(d: dict, keys: tuple = ("meta", "metadata")) -> None:
@@ -177,7 +173,7 @@ class PipecatVconBuilder:
                 )
                 return
         else:
-            dialog_kwargs["body"] = _base64url(state.audio_bytes)
+            dialog_kwargs["body"] = base64url_encode(state.audio_bytes)
             dialog_kwargs["encoding"] = "base64url"
             dialog_kwargs["content_hash"] = _sha512_content_hash(state.audio_bytes)
             dialog_kwargs["filename"] = filename
