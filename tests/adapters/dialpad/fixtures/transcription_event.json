@@ -1,0 +1,18 @@
+{
+  "call_id": 5550001,
+  "master_call_id": 5550001,
+  "event_timestamp": 1760000200000,
+  "state": "call_transcription",
+  "direction": "outbound",
+  "external_number": "+15555550100",
+  "internal_number": "+15555550199",
+  "target": {"phone": "+15555550199", "type": "user", "id": 7001, "name": "Test Agent"},
+  "contact": {"phone": "+15555550100", "type": "local", "id": 7002, "name": "Test Caller"},
+  "date_started": 1760000000000,
+  "date_connected": 1760000005000,
+  "date_ended": 1760000065000,
+  "recap_summary": "The caller asked about an order and was given a status update.",
+  "recap_outcome": "Resolved",
+  "recap_purposes": ["Order status"],
+  "recap_action_items": ["Send tracking link"]
+}

@@ -1,0 +1,7 @@
+{
+  "call_id": "5550001",
+  "summary": {"id": "s1", "content": "Short order status call.", "format": "medium"},
+  "disposition": {"id": "d1", "content": "Resolved"},
+  "action_items": [{"id": "a1", "content": "Send tracking link"}],
+  "purposes": [{"id": "p1", "category": "support", "content": "Order status"}]
+}

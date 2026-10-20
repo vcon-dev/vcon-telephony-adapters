@@ -35,6 +35,8 @@ dependencies = [
     # transitively (via vcon); declared directly because the Telnyx adapter
     # fails closed (refuses unsigned webhooks) if it is missing.
     "cryptography>=41.0.0",
+    # Verifies Dialpad's HS256-signed JWT webhook bodies.
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
