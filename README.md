@@ -573,9 +573,9 @@ silently dropped.
 ## Dialpad Adapter
 
 Dialpad pushes call events to a webhook as an HS256 JWT signed with the webhook
-secret (plain JSON if no secret was set). The adapter builds one vCon per call when
-the trigger state arrives, then fetches the recording, transcript and recap from the
-Dialpad API.
+secret (plain JSON if no secret was set). The adapter keeps one vCon per call, with
+one uuid, and fetches the recordings, transcript and recap from the Dialpad API. The
+first event that can build it posts it; later events that add something re-post it.
 
 ### Configuration
 
@@ -588,7 +588,7 @@ DIALPAD_WEBHOOK_SECRET=your_webhook_secret
 # Optional
 DIALPAD_API_BASE=https://dialpad.com
 VALIDATE_DIALPAD_SIGNATURE=true
-DIALPAD_TRIGGER_STATE=recording
+DIALPAD_UPDATE_ON_LATER_EVENTS=true
 ```
 
 ### Dialpad Configuration Options
@@ -600,7 +600,7 @@ DIALPAD_TRIGGER_STATE=recording
 | `DIALPAD_WEBHOOK_SECRET` | Yes* | - | Secret set when the webhook was created; verifies the JWT |
 | `VALIDATE_DIALPAD_SIGNATURE` | No | `true` | Enable JWT signature validation |
 | `DIALPAD_WEBHOOK_TOLERANCE_SECONDS` | No | `3600` | Replay-window tolerance; see [Webhook replay window](#webhook-replay-window) |
-| `DIALPAD_TRIGGER_STATE` | No | `recording` | State that triggers the vCon: `recording` or `call_transcription` |
+| `DIALPAD_UPDATE_ON_LATER_EVENTS` | No | `true` | Re-post the call's vCon (same uuid) when a later event adds a recording, the transcript or a recap component. `false` posts once |
 | `DIALPAD_INCLUDE_TRANSCRIPT` | No | `true` | Attach the AI transcript (needs Dialpad AI) |
 | `DIALPAD_INCLUDE_RECAP` | No | `true` | Attach the AI recap as analysis |
 | `DIALPAD_INCLUDE_ADMIN_RECORDINGS` | No | `false` | Download admin call recordings through their share link |
@@ -610,8 +610,20 @@ DIALPAD_TRIGGER_STATE=recording
 
 ### Behavior
 
-- One vCon per `call_id`. The external contact is party 0 and the internal user is party 1.
-- Voicemails are built on `voicemail_uploaded`.
+- One vCon per `call_id`, with one uuid for its whole life. The external contact is
+  party 0 and the internal user is party 1.
+- The first `recording`, `call_transcription`, `voicemail_uploaded` or `recap_*` event
+  builds and posts it. A later event re-posts it under the same uuid when it adds
+  something: a recording not yet included (Dialpad may send one `recording` event per
+  recording), the AI transcript, or a recap component. Every revision is rebuilt from
+  everything known so far, so it carries all earlier content. Events that add nothing
+  answer `already_processed`. On vcon-server a re-post overwrites the stored vCon and
+  runs the chain again; set `DIALPAD_UPDATE_ON_LATER_EVENTS=false` to post once.
+- Calls without Dialpad AI get their vCon from the `recording` event alone.
+- The tracker file (`STATE_FILE`) holds each call's uuid and what it includes, so
+  updates survive a restart.
+- With `MEDIA_BACKEND=embed` every revision downloads its audio again; with an
+  external publisher the audio is re-published to the same object key.
 - A call with several recordings gets one recording dialog each, plus a recording-set dialog.
 - The AI transcript, call moments and recap are attached as analysis when available.
 - Transfers produce one vCon per leg, tagged with `master_call_id`.
@@ -619,16 +631,24 @@ DIALPAD_TRIGGER_STATE=recording
 - Recording URLs are fetched with the API key only over https from `dialpad.com` or
   `sandbox.dialpad.com`, or from the `DIALPAD_API_BASE` origin.
 - A failed download, API call or conserver post answers `503` so Dialpad can
-  redeliver, and the call stays open for retry. After 5 failed attempts the adapter
-  answers `200` and keeps whichever recordings did arrive. With
-  `DIALPAD_TRIGGER_STATE=recording`, a later `call_transcription` event also retries a
-  call whose recording build failed.
+  redeliver; any later event for the call retries too, under the same uuid. That
+  includes a transient error fetching the transcript at a `call_transcription` event,
+  or the recap at a `recap_*` event that does not carry its own component; a `404`
+  there just means nothing to add yet. A failed
+  update leaves the earlier revision in place. After 5 consecutive failures the
+  adapter answers `200`, posts whichever new recordings did arrive, and marks the call
+  `abandoned`, which is final: later events for it are ignored.
+- `GET /status/{call_id}` reports the uuid, status (`pending`, `posted` or
+  `abandoned`) and revision count.
 
 ### Configuring Dialpad
 
 1. Create a webhook with a secret (`POST /api/v2/webhooks`), then create a call event
    subscription for the states `recording`, `call_transcription`, `voicemail_uploaded`
-   and `recap_summary` (`POST /api/v2/subscriptions/call`). The helper script does both:
+   and `recap_summary` (`POST /api/v2/subscriptions/call`). `recap_outcome`,
+   `recap_purposes` and `recap_action_items` are handled too if you add them with
+   `--states`; without them a `recap_summary` event fetches the rest of the recap. The
+   helper script does both:
    ```bash
    python scripts/dialpad_provision.py --hook-url https://your-domain.com/webhook/call-event --dry-run
    ```
@@ -648,6 +668,8 @@ DIALPAD_TRIGGER_STATE=recording
   by Dialpad. The replay window uses the payload's `event_timestamp` (unix
   milliseconds); an event without one is rejected.
 - Dialpad's retry timing on a failed delivery is not documented.
+- Whether Dialpad sends one `recording` event per finished recording, or one per call,
+  is not documented; both are handled.
 - Whether recordings are mono or stereo is not confirmed, so speaker separation from
   the audio alone is not assumed.
 

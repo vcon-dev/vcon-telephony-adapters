@@ -28,6 +28,19 @@ MAX_BACKOFF_SECONDS = 30.0
 DIALPAD_RECORDING_HOSTS = frozenset({"dialpad.com", "sandbox.dialpad.com"})
 
 
+class DialpadAPIError(Exception):
+    """A Dialpad API read failed in a way worth retrying: a network error, a
+    5xx, a 408, or 429s past the retry budget.
+
+    Distinct from the API answering that the resource is not there (404),
+    which the read methods report as None.
+    """
+
+
+def _is_transient(status: int) -> bool:
+    return status >= 500 or status in (408, 429)
+
+
 def _path_segment(value: Any) -> str:
     """An event-supplied id, made safe to place in one URL path segment."""
     return quote(str(value), safe="")
@@ -72,8 +85,12 @@ class DialpadClient:
 
     # -- HTTP plumbing ----------------------------------------------------
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response | None:
-        """Send an authenticated request, retrying 429s. None on any failure."""
+    def _request(
+        self, method: str, url: str, *, raise_transient: bool = False, **kwargs: Any
+    ) -> requests.Response | None:
+        """Send an authenticated request, retrying 429s. None on any failure,
+        except that with `raise_transient` a failure worth retrying raises
+        DialpadAPIError instead."""
         headers = {"Authorization": f"Bearer {self._api_key}", **kwargs.pop("headers", {})}
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -82,6 +99,8 @@ class DialpadClient:
                 )
             except requests.RequestException as e:
                 logger.error(f"Dialpad {method} {url} failed: {e}")
+                if raise_transient:
+                    raise DialpadAPIError(f"Dialpad {method} {url} failed") from None
                 return None
 
             if response.status_code == 429 and attempt < MAX_RETRIES:
@@ -97,6 +116,10 @@ class DialpadClient:
                 response.raise_for_status()
             except requests.RequestException as e:
                 logger.error(f"Dialpad {method} {url} failed: {e}")
+                if raise_transient and _is_transient(response.status_code):
+                    raise DialpadAPIError(
+                        f"Dialpad {method} {url} failed with {response.status_code}"
+                    ) from None
                 return None
             return response
         return None
@@ -111,7 +134,9 @@ class DialpadClient:
         return max(0.0, min(delay, MAX_BACKOFF_SECONDS))
 
     def _get_json(self, path: str, **kwargs: Any) -> dict[str, Any] | None:
-        response = self._request("GET", f"{self.api_base}{path}", **kwargs)
+        """GET a JSON object. None when absent (404, other 4xx, non-object);
+        raises DialpadAPIError when the failure is worth retrying."""
+        response = self._request("GET", f"{self.api_base}{path}", raise_transient=True, **kwargs)
         if response is None:
             return None
         try:
@@ -124,13 +149,17 @@ class DialpadClient:
     # -- API calls --------------------------------------------------------
 
     def get_call(self, call_id: int | str) -> dict[str, Any] | None:
-        """GET /api/v2/call/{call_id}: call info including recording_details."""
+        """GET /api/v2/call/{call_id}: call info including recording_details.
+
+        None when not found; raises DialpadAPIError on a transient failure.
+        """
         return self._get_json(f"/api/v2/call/{_path_segment(call_id)}")
 
     def get_transcript(self, call_id: int | str) -> dict[str, Any] | None:
         """GET /api/v2/transcripts/{call_id}: {"call_id", "lines": [...]}.
 
-        None when unavailable (transcripts need Dialpad AI on the call).
+        None when unavailable (transcripts need Dialpad AI on the call);
+        raises DialpadAPIError on a transient failure.
         """
         return self._get_json(f"/api/v2/transcripts/{_path_segment(call_id)}")
 
@@ -139,7 +168,8 @@ class DialpadClient:
 
         Returns Dialpad's AiRecapProto: `summary`, `disposition`,
         `action_items` and `purposes`, each an object (or list of objects)
-        with a `content` string.
+        with a `content` string. None when unavailable; raises DialpadAPIError
+        on a transient failure.
         """
         return self._get_json(f"/api/v2/call/{_path_segment(call_id)}/ai_recap")
 

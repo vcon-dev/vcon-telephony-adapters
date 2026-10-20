@@ -18,8 +18,6 @@ from .client import DialpadClient
 
 logger = logging.getLogger(__name__)
 
-VALID_TRIGGER_STATES = ("recording", "call_transcription")
-
 
 def _env_bool(name: str, default: str) -> bool:
     return os.getenv(name, default).lower() in ("true", "1", "yes")
@@ -64,15 +62,12 @@ class DialpadConfig(BaseConfig):
         elif not self.webhook_timestamp_tolerance_explicitly_set:
             self.webhook_timestamp_tolerance_seconds = 3600
 
-        # Which event state builds the vCon. `recording` fires when the audio
-        # is ready; `call_transcription` fires later, once Dialpad AI has the
-        # transcript, so the vCon is complete in one pass.
-        self.trigger_state = os.getenv("DIALPAD_TRIGGER_STATE", "recording").strip().lower()
-        if self.trigger_state not in VALID_TRIGGER_STATES:
-            raise ValueError(
-                f"DIALPAD_TRIGGER_STATE must be one of {list(VALID_TRIGGER_STATES)}, "
-                f"got: {self.trigger_state}"
-            )
+        # The first buildable event for a call posts its vCon. Later events
+        # that add something (another recording, the AI transcript, a recap
+        # component) rebuild it under the same uuid and post it again, which
+        # on vcon-server overwrites the stored vCon and runs the chain again.
+        # False: post once, from the first buildable event, and ignore the rest.
+        self.update_on_later_events = _env_bool("DIALPAD_UPDATE_ON_LATER_EVENTS", "true")
 
         self.include_transcript = _env_bool("DIALPAD_INCLUDE_TRANSCRIPT", "true")
         self.include_recap = _env_bool("DIALPAD_INCLUDE_RECAP", "true")

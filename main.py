@@ -274,7 +274,7 @@ def run_dialpad_adapter():
 
     logger.info("Starting vCon Dialpad Adapter...")
     logger.info(f"Conserver URL: {config.conserver_url}")
-    logger.info(f"Trigger state: {config.trigger_state}")
+    logger.info(f"Update on later events: {config.update_on_later_events}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
 
     # Create FastAPI app

@@ -329,3 +329,75 @@ class TestVoicemail:
         assert vcon is not None
         detail = client.download_recording.call_args.args[0]
         assert detail == {"url": "https://dialpad.com/v/vm-1", "recording_type": "voicemail"}
+
+
+class TestRebuild:
+    def test_build_call_keeps_uuid_created_at_and_previous_content(self):
+        client = make_client(
+            call=load_fixture("call.json"), transcript=load_fixture("transcript.json")
+        )
+        builder = DialpadVconBuilder(client)
+        first = builder.build_call(load_fixture("recording_event.json"))
+        assert [d["id"] for d in first.recordings] == ["rec-1"]
+        assert first.transcript is True
+
+        event = load_fixture("recording_event.json")
+        event["recording_details"] = load_fixture("call.json")["recording_details"][1:2]
+        second = builder.build_call(
+            event,
+            vcon_uuid=first.vcon.uuid,
+            created_at=first.vcon.created_at,
+            previous=first.snapshot(),
+            revision=2,
+        )
+        assert second.vcon.uuid == first.vcon.uuid
+        assert second.vcon.created_at == first.vcon.created_at
+        assert [d["id"] for d in second.recordings] == ["rec-1", "rec-2"]
+        assert tags(second.vcon)["revision"] == "2"
+        jsonschema.validate(instance=second.vcon.vcon_dict, schema=SCHEMA)
+
+    def test_previous_recording_lost_raises(self):
+        client = make_client(call=load_fixture("call.json"))
+        builder = DialpadVconBuilder(client)
+        first = builder.build_call(load_fixture("recording_event.json"))
+        client.download_recording.side_effect = lambda d: None if d["id"] == "rec-1" else AUDIO
+        with pytest.raises(DialpadBuildError):
+            builder.build_call(
+                load_fixture("transcription_event.json"),
+                previous=first.snapshot(),
+                allow_partial=True,
+            )
+
+    def test_previous_transcript_lost_raises(self):
+        client = make_client(transcript=load_fixture("transcript.json"))
+        builder = DialpadVconBuilder(client)
+        first = builder.build_call(load_fixture("recording_event.json"))
+        client.get_transcript.return_value = None
+        with pytest.raises(DialpadBuildError):
+            builder.build_call(load_fixture("recording_event.json"), previous=first.snapshot())
+
+    def test_recap_event_fills_missing_components_from_endpoint(self):
+        client = make_client(call=load_fixture("call.json"), recap=load_fixture("ai_recap.json"))
+        event = load_fixture("transcription_event.json")
+        event["state"] = "recap_summary"
+        for key in ("recap_outcome", "recap_purposes", "recap_action_items"):
+            del event[key]
+        result = DialpadVconBuilder(client).build_call(event)
+        # The event's own summary wins over the endpoint's.
+        assert result.recap["summary"].startswith("The caller asked")
+        assert result.recap["outcome"] == "Resolved"
+        assert result.recap["action_items"] == ["Send tracking link"]
+        client.get_ai_recap.assert_called_once()
+
+    def test_previous_recap_survives_endpoint_failure(self):
+        client = make_client(call=load_fixture("call.json"))
+        client.get_ai_recap.side_effect = RuntimeError("rate limited")
+        event = load_fixture("transcription_event.json")
+        event["state"] = "recap_outcome"
+        for key in ("recap_summary", "recap_purposes", "recap_action_items"):
+            del event[key]
+        result = DialpadVconBuilder(client).build_call(
+            event, previous={"recordings": [], "recap": {"summary": "Earlier summary."}}
+        )
+        assert result.recap == {"summary": "Earlier summary.", "outcome": "Resolved"}
+        assert "summary" in analysis_by_type(result.vcon)

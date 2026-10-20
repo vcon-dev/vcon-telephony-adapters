@@ -12,7 +12,7 @@ ENV_VARS = [
     "VALIDATE_DIALPAD_SIGNATURE",
     "DIALPAD_WEBHOOK_TOLERANCE_SECONDS",
     "WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS",
-    "DIALPAD_TRIGGER_STATE",
+    "DIALPAD_UPDATE_ON_LATER_EVENTS",
     "DIALPAD_INCLUDE_TRANSCRIPT",
     "DIALPAD_INCLUDE_RECAP",
     "DIALPAD_INCLUDE_ADMIN_RECORDINGS",
@@ -37,7 +37,7 @@ class TestDialpadConfig:
         assert config.api_base == "https://dialpad.com"
         assert config.validate_webhook is True
         assert config.webhook_timestamp_tolerance_seconds == 3600
-        assert config.trigger_state == "recording"
+        assert config.update_on_later_events is True
         assert config.include_transcript is True
         assert config.include_recap is True
         assert config.include_admin_recordings is False
@@ -80,14 +80,9 @@ class TestDialpadConfig:
         with pytest.raises(ValueError, match="DIALPAD_WEBHOOK_TOLERANCE_SECONDS"):
             DialpadConfig()
 
-    def test_trigger_state_call_transcription(self, monkeypatch):
-        monkeypatch.setenv("DIALPAD_TRIGGER_STATE", "call_transcription")
-        assert DialpadConfig().trigger_state == "call_transcription"
-
-    def test_invalid_trigger_state_rejected(self, monkeypatch):
-        monkeypatch.setenv("DIALPAD_TRIGGER_STATE", "hangup")
-        with pytest.raises(ValueError, match="DIALPAD_TRIGGER_STATE"):
-            DialpadConfig()
+    def test_update_on_later_events_can_be_disabled(self, monkeypatch):
+        monkeypatch.setenv("DIALPAD_UPDATE_ON_LATER_EVENTS", "false")
+        assert DialpadConfig().update_on_later_events is False
 
     def test_feature_flags(self, monkeypatch):
         monkeypatch.setenv("DIALPAD_INCLUDE_TRANSCRIPT", "false")

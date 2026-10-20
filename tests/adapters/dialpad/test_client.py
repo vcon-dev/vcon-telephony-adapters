@@ -10,7 +10,7 @@ import pytest
 import requests
 
 from adapters.dialpad import client as client_module
-from adapters.dialpad.client import DialpadClient
+from adapters.dialpad.client import DialpadAPIError, DialpadClient
 
 
 def make_response(status=200, json_data=None, content=b"", headers=None):
@@ -56,10 +56,30 @@ class TestDialpadClient:
         client, _ = make_client(make_response(status=404))
         assert client.get_transcript(1) is None
 
-    def test_network_error_returns_none(self):
+    def test_network_error_raises_transient(self):
         client, session = make_client()
         session.request.side_effect = requests.ConnectionError("boom")
-        assert client.get_call(1) is None
+        with pytest.raises(DialpadAPIError):
+            client.get_call(1)
+
+    @pytest.mark.parametrize("status", [500, 502, 503, 408])
+    def test_transient_status_raises(self, status):
+        for method in ("get_call", "get_transcript", "get_ai_recap"):
+            client, _ = make_client(make_response(status=status))
+            with pytest.raises(DialpadAPIError):
+                getattr(client, method)(1)
+
+    @pytest.mark.parametrize("status", [404, 403, 401])
+    def test_not_found_or_forbidden_is_none(self, status):
+        # Absent, or a scope that is missing: retrying will not help.
+        for method in ("get_call", "get_transcript", "get_ai_recap"):
+            client, _ = make_client(make_response(status=status))
+            assert getattr(client, method)(1) is None
+
+    def test_download_failure_still_returns_none(self):
+        client, _ = make_client(make_response(status=503))
+        detail = {"url": "https://dialpad.com/r/1", "recording_type": "callrecording"}
+        assert client.download_recording(detail) is None
 
     def test_429_retries_with_retry_after(self, monkeypatch):
         sleeps = []
@@ -75,7 +95,8 @@ class TestDialpadClient:
     def test_429_gives_up_after_bounded_retries(self, monkeypatch):
         monkeypatch.setattr(client_module.time, "sleep", lambda s: None)
         client, session = make_client(*[make_response(status=429) for _ in range(10)])
-        assert client.get_call(1) is None
+        with pytest.raises(DialpadAPIError):
+            client.get_call(1)
         assert session.request.call_count == client_module.MAX_RETRIES + 1
 
     def test_retry_after_capped(self, monkeypatch):
@@ -181,6 +202,7 @@ class TestDialpadClient:
     def test_api_key_not_in_logs(self, caplog):
         client, session = make_client()
         session.request.side_effect = requests.ConnectionError("down")
-        with caplog.at_level("DEBUG"):
+        with caplog.at_level("DEBUG"), pytest.raises(DialpadAPIError) as raised:
             client.get_call(1)
         assert "secret-key" not in caplog.text
+        assert "secret-key" not in str(raised.value)
