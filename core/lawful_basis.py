@@ -108,7 +108,13 @@ class LawfulBasisConfig:
             for purpose in self.purposes
         ]
 
-    def apply(self, vcon: Vcon, party_index: int = 0, dialog_index: int = 0) -> bool:
+    def apply(
+        self,
+        vcon: Vcon,
+        party_index: int = 0,
+        dialog_index: int | None = 0,
+        session_index: int | list[int] | None = None,
+    ) -> bool:
         """Attach the configured basis. Returns False when none is configured.
 
         Delegates to `vcon-lib`, which owns the shape its own validator and
@@ -128,6 +134,12 @@ class LawfulBasisConfig:
         if not self.enabled:
             return False
 
+        # core-05 (syntax 0.5.0) scopes the basis with `party` plus `session`.
+        # Pass `session_index` and the dialog scope is dropped; the 0.4.0 path
+        # keeps its `dialog_index`.
+        if session_index is not None:
+            dialog_index = None
+
         from datetime import datetime, timezone
 
         granted_at = datetime.now(timezone.utc).isoformat()
@@ -138,6 +150,7 @@ class LawfulBasisConfig:
             purpose_grants=self.purpose_grants(granted_at),
             party_index=party_index,
             dialog_index=dialog_index,
+            session_index=session_index,
             **self._body_extras(),
         )
 

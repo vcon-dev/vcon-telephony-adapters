@@ -210,6 +210,43 @@ class BaseVconBuilder(ABC):
             return 0
         return 1
 
+    def _add_media(
+        self,
+        dialog_kwargs: dict[str, Any],
+        recording_data: BaseRecordingData,
+        filename: str,
+    ) -> None:
+        """Put the audio on a Dialog's kwargs: re-hosted, embedded or referenced."""
+        if self.publisher is not None and recording_data.recording_url:
+            # External media: re-host, then reference. The audio still has
+            # to be fetched (a pre-signed source URL expires), but it never
+            # enters the vCon.
+            published = self._publish_recording(recording_data, filename)
+            if published is not None:
+                dialog_kwargs["url"] = published.url
+                dialog_kwargs["content_hash"] = published.content_hash
+                dialog_kwargs["filename"] = filename
+            else:
+                logger.error(
+                    "Publishing failed for %s; emitting a dialog with no media "
+                    "rather than a link that will not resolve",
+                    recording_data.recording_id,
+                )
+
+        elif self.download_recordings and recording_data.recording_url:
+            audio_data = self._download_recording(recording_data)
+            if audio_data:
+                dialog_kwargs["body"] = base64url_encode(audio_data)
+                dialog_kwargs["encoding"] = "base64url"
+                dialog_kwargs["filename"] = filename
+            else:
+                logger.warning(
+                    f"Download failed, using URL reference for {recording_data.recording_id}"
+                )
+                dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
+        elif recording_data.recording_url:
+            dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
+
     def build(self, recording_data: BaseRecordingData) -> Vcon | None:
         """Build a vCon from recording data.
 
@@ -245,7 +282,6 @@ class BaseVconBuilder(ABC):
                 "type": "recording",
                 "start": start_time,
                 "parties": [0, 1],
-                "originator": originator,
                 # `mediatype` is the spec field (draft-ietf-vcon-vcon-core-02).
                 # `mimetype` is not, so it landed as an unknown extra key while
                 # `mediatype` stayed absent, and vcon-lib's own validator
@@ -258,40 +294,16 @@ class BaseVconBuilder(ABC):
                 dialog_kwargs["duration"] = recording_data.duration_seconds
 
             filename = f"{recording_data.recording_id}.{self.recording_format}"
-
-            if self.publisher is not None and recording_data.recording_url:
-                # External media: re-host, then reference. The audio still has
-                # to be fetched (a pre-signed source URL expires), but it never
-                # enters the vCon.
-                published = self._publish_recording(recording_data, filename)
-                if published is not None:
-                    dialog_kwargs["url"] = published.url
-                    dialog_kwargs["content_hash"] = published.content_hash
-                    dialog_kwargs["filename"] = filename
-                else:
-                    logger.error(
-                        "Publishing failed for %s; emitting a dialog with no media "
-                        "rather than a link that will not resolve",
-                        recording_data.recording_id,
-                    )
-
-            elif self.download_recordings and recording_data.recording_url:
-                audio_data = self._download_recording(recording_data)
-                if audio_data:
-                    dialog_kwargs["body"] = base64url_encode(audio_data)
-                    dialog_kwargs["encoding"] = "base64url"
-                    dialog_kwargs["filename"] = filename
-                else:
-                    logger.warning(
-                        f"Download failed, using URL reference for {recording_data.recording_id}"
-                    )
-                    dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
-            elif recording_data.recording_url:
-                dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
+            self._add_media(dialog_kwargs, recording_data, filename)
 
             # Create dialog
             dialog = Dialog(**dialog_kwargs)
-            vcon.add_dialog(dialog)
+            dialog_index = vcon.add_dialog(dialog)
+            # vcon-lib 1.0 refuses `originator` on a Dialog (core-05 moved it to
+            # the Session). Adapters not yet ported keep the 0.4.0 shape, so it is
+            # written to the stored dict directly.
+            vcon.vcon_dict["dialog"][dialog_index]["originator"] = originator
+            vcon.vcon_dict["vcon"] = "0.4.0"
 
             # Add source tag
             vcon.add_tag("source", self.ADAPTER_SOURCE)
