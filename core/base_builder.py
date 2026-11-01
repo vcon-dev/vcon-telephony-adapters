@@ -179,14 +179,22 @@ class BaseVconBuilder(ABC):
         """
         return f"{recording_url}.{self.recording_format}"
 
-    def _apply_lawful_basis(self, vcon: Vcon, recording_data: BaseRecordingData) -> None:
+    def _apply_lawful_basis(
+        self,
+        vcon: Vcon,
+        recording_data: BaseRecordingData,
+        session_index: int | None = None,
+    ) -> None:
         """Why we are entitled to hold this recording: the deployment's configured basis.
 
         Emitted only when a deployment configured a basis; never invented on its behalf.
         A subclass may choose a per-call basis instead (the Telnyx adapter does, for a call
-        whose tenant a trusted relay names).
+        whose tenant a trusted relay names). `session_index` scopes it to a core-05 Session;
+        without one it keeps the 0.4.0 dialog scope.
         """
-        if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+        if self.lawful_basis is None or not self.lawful_basis.apply(
+            vcon, session_index=session_index
+        ):
             logger.warning(
                 "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
                 "(consent | contract | legal_obligation | vital_interests | "

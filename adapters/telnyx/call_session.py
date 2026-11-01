@@ -20,6 +20,7 @@ acceptable trade against running a database for it.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -43,6 +44,11 @@ LIFECYCLE_EVENTS = frozenset(
         "call.hangup",
         "call.machine.detection.ended",
         "call.dtmf.received",
+        # SIP REFER transfer lifecycle. Folded into `transfers`, which the
+        # builder turns into core-05 transfer Events.
+        "call.refer.started",
+        "call.refer.completed",
+        "call.refer.failed",
     }
 )
 
@@ -71,6 +77,7 @@ class CallSession:
     dtmf_digits: list[str] = field(default_factory=list)
     call_control_id: str = ""
     connection_id: str = ""
+    transfers: list[dict[str, Any]] = field(default_factory=list)
     last_seen: float = field(default_factory=time.monotonic)
 
     def apply(self, event_type: str, payload: dict[str, Any], occurred_at: str = "") -> None:
@@ -106,6 +113,21 @@ class CallSession:
             # makes ring duration computable.
             self.answered_at = occurred_at or self.answered_at
 
+        if event_type == "call.refer.started":
+            # The REFER target. Telnyx carries it as a SIP URI or a number; the
+            # transfer is recorded once, on its start. `completed`/`failed` say
+            # whether the target call worked, which a transfer Event does not.
+            self.transfers.append(
+                {
+                    "time": occurred_at,
+                    "target": refer_target(payload),
+                    # A consultative transfer names the call that preceded it.
+                    "consultation_call_session_id": payload.get("consultation_call_session_id"),
+                    "consultation_started_at": payload.get("consultation_started_at"),
+                    "call_leg_id": payload.get("call_leg_id"),
+                }
+            )
+
         if event_type == "call.dtmf.received":
             digit = payload.get("digit")
             if digit:
@@ -135,6 +157,19 @@ class CallSession:
     @property
     def has_parties(self) -> bool:
         return bool(self.from_number and self.to_number)
+
+
+def refer_target(payload: dict[str, Any]) -> str:
+    """The number a REFER points at, from `refer_to` (SIP URI or bare number).
+
+    Empty when the event does not say, which the builder records as an empty
+    Party Object rather than guessing.
+    """
+    raw = str(payload.get("refer_to") or "").strip()
+    if not raw:
+        return ""
+    match = re.match(r"^<?(?:sips?|tel):([^@;>]+)", raw)
+    return match.group(1) if match else raw
 
 
 class CallSessionStore:

@@ -112,8 +112,8 @@ def test_dialog_carries_mediatype_not_mimetype(built_vcon):
     assert "mimetype" not in dialog, "non-spec field is back"
 
 
-def test_syntax_version_is_core_02(built_vcon):
-    assert built_vcon.to_dict()["vcon"] == "0.4.0"
+def test_syntax_version_is_core_05(built_vcon):
+    assert built_vcon.to_dict()["vcon"] == "0.5.0"
 
 
 def test_both_parties_present_as_tel_uris(built_vcon):
@@ -136,8 +136,14 @@ def test_duration_converted_from_millis(built_vcon):
 
 
 def test_inbound_call_originates_from_callee(built_vcon):
-    """Telnyx `incoming` means they called us, so party 1 initiated."""
-    assert built_vcon.to_dict()["dialog"][0]["originator"] == 1
+    """Telnyx `incoming` means they called us, so party 1 initiated.
+
+    Core-05: the originator is on the Session, and "originator" is absent
+    from the Dialog.
+    """
+    data = built_vcon.to_dict()
+    assert data["sessions"][0]["originator"] == 1
+    assert "originator" not in data["dialog"][0]
 
 
 def test_telnyx_identifiers_are_preserved(built_vcon):
