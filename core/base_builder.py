@@ -154,11 +154,13 @@ class BaseVconBuilder(ABC):
         try:
             tmp_path.write_bytes(audio_data)
             published = self.publisher.publish(tmp_path, filename)
+            # The query is left out: a signed URL's `sig` is a standing
+            # credential for the audio, so it does not belong in a log.
             logger.info(
                 "Published %s (%d bytes) to %s",
                 recording_data.recording_id,
                 len(audio_data),
-                published.url,
+                published.url.split("?", 1)[0],
             )
             return published
         except Exception as exc:  # noqa: BLE001 - publishing must not kill the vCon
