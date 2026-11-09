@@ -43,3 +43,22 @@ def test_config_reads_signing_key(monkeypatch, tmp_path):
     assert BaseConfig().build_publisher().signing_key == "k"
     monkeypatch.delenv("MEDIA_URL_SIGNING_KEY")
     assert BaseConfig().build_publisher().signing_key is None
+
+
+def test_publish_log_leaves_out_the_signature(tmp_path, monkeypatch, caplog):
+    import logging
+
+    from adapters.twilio.builder import TwilioRecordingData, TwilioVconBuilder
+
+    monkeypatch.setattr(TwilioVconBuilder, "_download_recording", lambda self, rd: b"audio")
+    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["derived_hex"])
+    builder = TwilioVconBuilder(recording_format="wav", publisher=pub)
+    data = TwilioRecordingData({"RecordingSid": "RE1", "From": "+15551234567", "To": "+15559876543",
+                                "Direction": "inbound", "RecordingUrl": "https://api.example.test/RE1"})
+    with caplog.at_level(logging.INFO, logger="core.base_builder"):
+        vcon = builder.build(data)
+    url = vcon.to_dict()["dialog"][0]["url"]
+    sig = url.split("?sig=", 1)[1]
+    assert len(sig) == 64
+    assert "Published RE1" in caplog.text and "https://media.test/rec/RE1.wav" in caplog.text
+    assert sig not in caplog.text and "sig=" not in caplog.text
