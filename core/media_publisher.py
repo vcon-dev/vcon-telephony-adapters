@@ -107,7 +107,9 @@ class FilesystemPublisher:
     of the link. Unset, URLs are unchanged.
     """
 
-    def __init__(self, destination: Path, base_url: str | None = None, signing_key: str | None = None):
+    def __init__(
+        self, destination: Path, base_url: str | None = None, signing_key: str | None = None
+    ):
         if not destination:
             raise PublishingError("media.filesystem.path is required for filesystem publishing")
         self.destination = Path(destination).resolve()
@@ -257,7 +259,7 @@ class S3Publisher:
 
     @classmethod
     def _is_retryable(cls, exc: Exception) -> bool:
-        if isinstance(exc, (TimeoutError, ConnectionError)):
+        if isinstance(exc, TimeoutError | ConnectionError):
             return True
         if type(exc).__name__ in cls._RETRYABLE_EXCEPTION_NAMES:
             return True

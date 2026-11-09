@@ -1,10 +1,13 @@
 """FilesystemPublisher signs media URLs only when given a key."""
+
 import json
 from pathlib import Path
 
 from core.media_publisher import FilesystemPublisher, signature_for
 
-VECTOR = json.loads((Path(__file__).parent / "fixtures" / "media-signature-vector.json").read_text())
+VECTOR = json.loads(
+    (Path(__file__).parent / "fixtures" / "media-signature-vector.json").read_text()
+)
 
 
 def _audio(tmp_path):
@@ -18,9 +21,13 @@ def test_signature_matches_shared_vector():
 
 
 def test_signed_url_carries_sig(tmp_path):
-    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"])
+    pub = FilesystemPublisher(
+        tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"]
+    )
     published = pub.publish(_audio(tmp_path), VECTOR["file_name"])
-    assert published.url == f"https://media.test/rec/{VECTOR['file_name']}?sig={VECTOR['signature']}"
+    assert (
+        published.url == f"https://media.test/rec/{VECTOR['file_name']}?sig={VECTOR['signature']}"
+    )
     assert (tmp_path / "out" / VECTOR["file_name"]).read_bytes() == b"audio"
 
 
@@ -36,7 +43,8 @@ def test_empty_key_counts_as_unset(tmp_path):
 
 def test_config_reads_signing_key(minimal_env, tmp_path):
     from core.base_config import BaseConfig
-    monkeypatch = minimal_env   # CONSERVER_URL set here, not left over from another test
+
+    monkeypatch = minimal_env  # CONSERVER_URL set here, not left over from another test
     monkeypatch.setenv("MEDIA_BACKEND", "filesystem")
     monkeypatch.setenv("MEDIA_FILESYSTEM_PATH", str(tmp_path))
     monkeypatch.setenv("MEDIA_BASE_URL", "https://media.test/rec")
@@ -52,10 +60,19 @@ def test_publish_log_leaves_out_the_signature(tmp_path, monkeypatch, caplog):
     from adapters.twilio.builder import TwilioRecordingData, TwilioVconBuilder
 
     monkeypatch.setattr(TwilioVconBuilder, "_download_recording", lambda self, rd: b"audio")
-    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"])
+    pub = FilesystemPublisher(
+        tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"]
+    )
     builder = TwilioVconBuilder(recording_format="wav", publisher=pub)
-    data = TwilioRecordingData({"RecordingSid": "RE1", "From": "+15551234567", "To": "+15559876543",
-                                "Direction": "inbound", "RecordingUrl": "https://api.example.test/RE1"})
+    data = TwilioRecordingData(
+        {
+            "RecordingSid": "RE1",
+            "From": "+15551234567",
+            "To": "+15559876543",
+            "Direction": "inbound",
+            "RecordingUrl": "https://api.example.test/RE1",
+        }
+    )
     with caplog.at_level(logging.INFO, logger="core.base_builder"):
         vcon = builder.build(data)
     url = vcon.to_dict()["dialog"][0]["url"]
