@@ -14,11 +14,11 @@ def _audio(tmp_path):
 
 
 def test_signature_matches_shared_vector():
-    assert signature_for(VECTOR["file_name"], VECTOR["derived_hex"]) == VECTOR["signature"]
+    assert signature_for(VECTOR["file_name"], VECTOR["signing_key"]) == VECTOR["signature"]
 
 
 def test_signed_url_carries_sig(tmp_path):
-    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["derived_hex"])
+    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"])
     published = pub.publish(_audio(tmp_path), VECTOR["file_name"])
     assert published.url == f"https://media.test/rec/{VECTOR['file_name']}?sig={VECTOR['signature']}"
     assert (tmp_path / "out" / VECTOR["file_name"]).read_bytes() == b"audio"
@@ -52,7 +52,7 @@ def test_publish_log_leaves_out_the_signature(tmp_path, monkeypatch, caplog):
     from adapters.twilio.builder import TwilioRecordingData, TwilioVconBuilder
 
     monkeypatch.setattr(TwilioVconBuilder, "_download_recording", lambda self, rd: b"audio")
-    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["derived_hex"])
+    pub = FilesystemPublisher(tmp_path / "out", base_url="https://media.test/rec", signing_key=VECTOR["signing_key"])
     builder = TwilioVconBuilder(recording_format="wav", publisher=pub)
     data = TwilioRecordingData({"RecordingSid": "RE1", "From": "+15551234567", "To": "+15559876543",
                                 "Direction": "inbound", "RecordingUrl": "https://api.example.test/RE1"})
