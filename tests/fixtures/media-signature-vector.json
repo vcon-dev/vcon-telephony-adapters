@@ -1,6 +1,6 @@
 {
  "description": "Shared test vector for media URL signatures. A server that verifies them must reproduce signature from signing_key and file_name: signature = hex(HMAC-SHA256(key=signing_key as UTF-8, msg=file_name as UTF-8)). signing_key is the MEDIA_URL_SIGNING_KEY value.",
- "signing_key": "8d5e5623ba9b39ef0aa630a997bb6d7089b5f26bef668730b43652adf61a25ed",
+ "signing_key": "fixture-recording-url-key",
  "file_name": "3f2b8c1e-5a47-4d0e-9b61-0c7e2a9d4f10.mp3",
- "signature": "e33bf35ebf001420847103b3dd4ebbd0323f8fb8e76fe732d8dfdc87a605d1e0"
+ "signature": "1d049150f6364de2a7f898910bbb1324a34615ad85e040bcff67b05f970666eb"
 }
