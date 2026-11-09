@@ -13,6 +13,7 @@ again.
 
 import base64
 import hashlib
+import hmac
 import mimetypes
 import os
 import shutil
@@ -71,6 +72,16 @@ def _public_url(base_url: str, object_key: str) -> str:
     return f"{base_url.rstrip('/')}/{quote(object_key, safe='/')}"
 
 
+def signature_for(file_name: str, signing_key: str) -> str:
+    """Hex HMAC-SHA256 of a file name under `signing_key` (UTF-8). No expiry.
+
+    A serving endpoint that holds the same key can check the `sig` query
+    parameter with a constant-time compare. Shared test vector:
+    tests/fixtures/media-signature-vector.json.
+    """
+    return hmac.new(signing_key.encode(), file_name.encode(), hashlib.sha256).hexdigest()
+
+
 class NonePublisher:
     """Describe media published separately by the operator."""
 
@@ -89,13 +100,19 @@ class NonePublisher:
 
 
 class FilesystemPublisher:
-    """Copy media to a durable filesystem destination."""
+    """Copy media to a durable filesystem destination.
 
-    def __init__(self, destination: Path, base_url: str | None = None):
+    With `signing_key` set, the public URL carries `?sig=` over the file name
+    (see `signature_for`), for a server that only hands out audio to holders
+    of the link. Unset, URLs are unchanged.
+    """
+
+    def __init__(self, destination: Path, base_url: str | None = None, signing_key: str | None = None):
         if not destination:
             raise PublishingError("media.filesystem.path is required for filesystem publishing")
         self.destination = Path(destination).resolve()
         self.base_url = base_url
+        self.signing_key = signing_key or None
 
     def publish(self, local_path: Path, object_key: str) -> PublishedAudio:
         source = Path(local_path)
@@ -118,6 +135,8 @@ class FilesystemPublisher:
             raise PublishingError(f"Cannot publish {source} to {target}: {exc}") from exc
 
         url = _public_url(self.base_url, key) if self.base_url else target.as_uri()
+        if self.signing_key and self.base_url:
+            url += "?sig=" + signature_for(PurePosixPath(key).name, self.signing_key)
         return PublishedAudio(
             url=url,
             content_hash=sha512_content_hash(target),

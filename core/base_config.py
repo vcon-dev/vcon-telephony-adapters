@@ -63,6 +63,8 @@ class BaseConfig:
         self.media_backend = os.getenv("MEDIA_BACKEND", "embed").strip().lower()
         self.media_base_url = os.getenv("MEDIA_BASE_URL")
         self.media_filesystem_path = os.getenv("MEDIA_FILESYSTEM_PATH")
+        # Optional. When set, filesystem media URLs get `?sig=<hmac of the file name>`.
+        self.media_url_signing_key = os.getenv("MEDIA_URL_SIGNING_KEY") or None
         self.media_s3_bucket = os.getenv("MEDIA_S3_BUCKET")
         self.media_s3_region = os.getenv("MEDIA_S3_REGION")
         self.media_s3_prefix = os.getenv("MEDIA_S3_PREFIX", "")
@@ -172,6 +174,7 @@ class BaseConfig:
             return FilesystemPublisher(
                 destination=self.media_filesystem_path,
                 base_url=self.media_base_url,
+                signing_key=self.media_url_signing_key,
             )
 
         if backend == "s3":

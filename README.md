@@ -585,6 +585,7 @@ All adapters share these common configuration options:
 | `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | unset | Shared replay-window tolerance override for adapters with a signed timestamp (Telnyx, ElevenLabs); applies only when explicitly set. See [Webhook replay window](#webhook-replay-window) |
 | `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64url), `filesystem`, or `s3` |
 | `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
+| `MEDIA_URL_SIGNING_KEY` | No | - | `filesystem` only. Appends `?sig=<HMAC-SHA256 of the file name>` to each media URL, for a server that checks it. Unset leaves URLs unchanged |
 | `MEDIA_FILESYSTEM_PATH` | Only if `MEDIA_BACKEND=filesystem` | - | Directory to write published recordings to |
 | `MEDIA_S3_BUCKET` | Only if `MEDIA_BACKEND=s3` | - | S3 (or S3-compatible) bucket for published recordings. Needs the `s3` extra: `pip install ".[s3]"` |
 | `MEDIA_S3_REGION` | No | - | S3 region |
