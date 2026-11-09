@@ -34,8 +34,9 @@ def test_empty_key_counts_as_unset(tmp_path):
     assert "sig=" not in pub.publish(_audio(tmp_path), "a.mp3").url
 
 
-def test_config_reads_signing_key(monkeypatch, tmp_path):
+def test_config_reads_signing_key(minimal_env, tmp_path):
     from core.base_config import BaseConfig
+    monkeypatch = minimal_env   # CONSERVER_URL set here, not left over from another test
     monkeypatch.setenv("MEDIA_BACKEND", "filesystem")
     monkeypatch.setenv("MEDIA_FILESYSTEM_PATH", str(tmp_path))
     monkeypatch.setenv("MEDIA_BASE_URL", "https://media.test/rec")
