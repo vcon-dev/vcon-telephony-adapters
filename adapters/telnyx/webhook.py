@@ -24,6 +24,10 @@ ANNOTATION_PREFIX = "Annotation-"
 # The one annotation that also builds an attachment, and only from a trusted relay.
 TENANT_FIELD = "Annotation-tenant"
 
+# The tenant's lawful basis, one field per key of its basis record, beside the tenant field.
+# Read only with a trusted tenant, and then in place of the adapter's global basis.
+BASIS_PREFIX = "Annotation-basis_"
+
 # Peer addresses trusted as the relay without a token. The ASGI client address, never a
 # header: uvicorn rewrites it from X-Forwarded-For only for a peer in FORWARDED_ALLOW_IPS.
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
@@ -280,10 +284,11 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         event_data: dict,
         relayed_tenants: list[str] | None = None,
         relay_trusted: bool = False,
+        relayed_basis: dict[str, list] | None = None,
     ) -> str:
         """Shared by the Call Control JSON webhook and the TeXML form callback.
 
-        Only the TeXML route passes `relayed_tenants` and `relay_trusted`.
+        Only the TeXML route passes `relayed_tenants`, `relay_trusted` and `relayed_basis`.
         """
         # Check event type
         data = event_data.get("data", event_data)
@@ -314,6 +319,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             recording_meta=recording_meta,
             relayed_tenants=relayed_tenants or (),
             relay_trusted=relay_trusted,
+            relayed_basis=relayed_basis,
         )
         recording_id = recording_data.recording_id
 
@@ -384,7 +390,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         tag on the vCon. They are exactly as trusted as the rest of this form.
         `Annotation-tenant` also gives the vCon its tenant attachment, but only when the
         request is trusted as relayed (`relay_distrust`) and the form names one tenant id
-        (`TelnyxVconBuilder._attach_tenant`).
+        (`TelnyxVconBuilder._attach_tenant`). With such a tenant, the `Annotation-basis_<key>`
+        fields beside it are that tenant's lawful basis, used in place of the global one
+        (`TelnyxVconBuilder._apply_lawful_basis`); from an untrusted request they are ignored.
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
@@ -436,11 +444,22 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             }
         }
         relayed_tenants = [str(v) for v in form.getlist(TENANT_FIELD)]
+        # Every value per key, unconverted: a value that is not text is refused, not str()'d.
+        relayed_basis: dict[str, list] = {}
+        for name, value in form.multi_items():
+            if name.startswith(BASIS_PREFIX):
+                relayed_basis.setdefault(name[len(BASIS_PREFIX) :], []).append(value)
         distrust = relay_distrust(request)
         if relayed_tenants and distrust:
             logger.warning("%s ignored: %s", TENANT_FIELD, distrust)
+        if relayed_basis and distrust:
+            logger.warning("%s* ignored: %s", BASIS_PREFIX, distrust)
+            relayed_basis = {}
         return await _process_recording_event(
-            event_data, relayed_tenants=relayed_tenants, relay_trusted=distrust is None
+            event_data,
+            relayed_tenants=relayed_tenants,
+            relay_trusted=distrust is None,
+            relayed_basis=relayed_basis,
         )
 
     @app.get("/status/{recording_id}")

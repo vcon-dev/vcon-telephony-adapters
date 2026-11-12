@@ -129,14 +129,17 @@ def test_without_a_valid_tenant_the_vcon_is_byte_for_byte_as_before(tmp_path, ca
 
 
 @pytest.mark.parametrize("carrier", CARRIERS)
-def test_a_valid_tenant_changes_nothing_but_the_added_attachment(tmp_path, carrier):
+def test_a_valid_tenant_changes_nothing_but_the_added_attachment_and_the_basis(tmp_path, carrier):
+    """Since card 11b a trusted tenant never takes the global basis: with no basis fields on
+    the form it has no lawful_basis attachment, so no `lawful_basis` extension either. The rest
+    is the golden, byte for byte. A tenant's own basis is in test_tenant_basis.py."""
     vcon = _post(tmp_path, carrier, TENANT)
 
     assert len(_tenant_attachments(vcon)) == 1
-    assert (
-        normalized(_without_tenant_attachment(vcon)) + "\n"
-        == golden_path(carrier, "valid").read_text()
-    )
+    expected = json.loads(golden_path(carrier, "valid").read_text())
+    expected["attachments"] = [a for a in expected["attachments"] if a["purpose"] != "lawful_basis"]
+    assert expected.pop("extensions") == ["lawful_basis"]
+    assert normalized(_without_tenant_attachment(vcon)) == json.dumps(expected)
 
 
 @pytest.mark.parametrize(
