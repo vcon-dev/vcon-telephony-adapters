@@ -419,6 +419,10 @@ stay.
   <checked_by>}}`. A partner or staff entry always has all three (or is refused, below). A
   customer's own entry without all three records no proof; who chose it, when, and that the
   customer entered it are in `metadata`.
+- `metadata` is the record as entered and the proof refers to it, so two values appear twice
+  on purpose. `evidence` is in `metadata` and is the proof's `proof_data.document`.
+  `metadata.checked_at` keeps the value as relayed, while the proof's `timestamp` comes out
+  as vcon-lib normalises it, with `+00:00` for `Z`; both carry a zone.
 - Nothing else of the global configuration is used: not `LAWFUL_BASIS`,
   `LAWFUL_BASIS_JUSTIFICATION` or `LAWFUL_BASIS_EXPIRATION`.
 
@@ -450,6 +454,11 @@ naming only the reason, never a value:
 - `checked_by` without `checked_at` or the reverse, or a `checked_at` that is not an ISO 8601
   time with a zone;
 - `LAWFUL_BASIS_PURPOSES` empty.
+
+Because an unknown key refuses the whole basis, deploy order matters when the relay starts
+sending a new `Annotation-basis_<key>`: deploy the adapter that knows the key first, then the
+receiver. The other way round, every tenant's vCon goes without a basis until the adapter
+catches up.
 
 Such a vCon carries its tenant and no basis. It is noticed in the adapter's log line,
 by vcon-mcp's lawful basis warnings when it is stored (`no lawful_basis attachment`), and by
