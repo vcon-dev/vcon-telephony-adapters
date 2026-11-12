@@ -51,6 +51,8 @@ from .tenant_cases import (
 )
 
 TOKEN = "synthetic-callback-token"
+BASIS_TAG = "annotation_basis_"
+PROOF_KEYS = ("evidence", "checked_by")  # also in the proof's proof_data
 WG_SCHEMA = json.loads((Path(__file__).parents[2] / "schema" / "vcon_json_schema.json").read_text())
 GLOBAL_VALUES = ("legitimate_interests", "Synthetic global justification.", "2099")
 REFUSED = "the tenant's relayed lawful basis is refused"
@@ -97,7 +99,7 @@ def _expected(basis, start):
         {"purpose": "recording", "granted": True},
         {"purpose": "transcription", "granted": True},
     ]
-    if basis["entered_by"] != "customer":
+    if all(k in basis for k in ("evidence", "checked_by", "checked_at")):
         body["proof_mechanisms"] = [
             {
                 "proof_type": "signed_document",
@@ -175,11 +177,15 @@ def test_a_tenant_s_vcon_differs_from_the_no_tenant_golden_only_in_basis_and_ten
     tmp_path, carrier
 ):
     """The same form posted untrusted (the golden, M16's output) and trusted: the trusted one
-    swaps the global basis for the tenant's and adds the tenant attachment, nothing else."""
+    drops the annotation_basis_* tags, swaps the global basis for the tenant's and adds the
+    tenant attachment, nothing else."""
     vcon = _post(tmp_path, carrier, CHECKED)
     doc = json.loads(normalized(vcon))
     golden = json.loads(golden_path(carrier, "untrusted").read_text())
 
+    tags = golden["attachments"][0]
+    assert tags["purpose"] == "tags" and len([t for t in tags["body"] if BASIS_TAG in t]) == 9
+    tags["body"] = [t for t in tags["body"] if not t.startswith(BASIS_TAG)]
     i = [a["purpose"] for a in golden["attachments"]].index("lawful_basis")
     assert doc["attachments"][i]["body"]["lawful_basis"] == "consent"
     golden["attachments"][i] = doc["attachments"][i]
@@ -210,7 +216,7 @@ def test_the_same_value_twice_counts_once(tmp_path):
     assert attachment["body"]["lawful_basis"] == "contract"
 
 
-# ---- the proof: only a partner or staff entry, only with its document and its check
+# ---- the proof: only an uploaded document that staff checked, whoever entered the basis
 
 
 def test_a_customer_s_own_entry_with_a_document_and_no_check_gets_no_proof(tmp_path):
@@ -220,17 +226,37 @@ def test_a_customer_s_own_entry_with_a_document_and_no_check_gets_no_proof(tmp_p
     assert attachment["body"]["metadata"]["evidence"] == "doc-00000000000000d1"
 
 
-def test_a_customer_s_own_entry_records_no_proof_even_with_a_document_and_check(tmp_path):
+def test_a_customer_s_own_entry_with_a_check_and_no_document_gets_no_proof(tmp_path):
+    basis = dict(CUSTOMER, checked_by="synthetic staff admin", checked_at="2026-11-02T10:00:00Z")
+    [attachment] = _lawful(_post(tmp_path, "telnyx", basis))
+    assert "proof_mechanisms" not in attachment["body"]
+    assert attachment["body"]["metadata"]["checked_by"] == "synthetic staff admin"
+
+
+@pytest.mark.parametrize("carrier", CARRIERS)
+def test_a_customer_s_own_entry_with_a_checked_document_gets_the_signed_document_proof(
+    tmp_path, carrier
+):
     basis = dict(
         CUSTOMER,
         evidence="doc-00000000000000d1",
         checked_by="synthetic staff admin",
         checked_at="2026-11-02T10:00:00Z",
     )
-    vcon = _post(tmp_path, "telnyx", basis)
+    vcon = _post(tmp_path, carrier, basis)
     [attachment] = _lawful(vcon)
     assert _strip_grant_times(attachment) == _expected(basis, vcon.created_at)
-    assert "proof_mechanisms" not in attachment["body"]
+    assert attachment["body"]["proof_mechanisms"] == [
+        {
+            "proof_type": "signed_document",
+            "timestamp": "2026-11-02T10:00:00+00:00",
+            "proof_data": {
+                "document": "doc-00000000000000d1",
+                "checked_by": "synthetic staff admin",
+            },
+        }
+    ]
+    assert attachment["body"]["metadata"]["entered_by"] == "customer"
 
 
 @pytest.mark.parametrize("missing", ["evidence", "checked_by", "checked_at"])
@@ -243,6 +269,60 @@ def test_a_partner_entry_with_a_document_and_no_check_gets_no_attachment(tmp_pat
     assert _lawful(vcon) == [] and _purposes(vcon) == ["tags", "tenant"]
     assert _builder_warnings(caplog) == [
         f"vCon {vcon.uuid}: {REFUSED} (the basis is partial), so no lawful_basis attachment"
+    ]
+
+
+# ---- the annotation_basis_* tags: dropped with a counted tenant, kept without one
+
+
+def _tags(vcon):
+    tags = next(a for a in vcon.to_dict()["attachments"] if a["purpose"] == "tags")
+    return tags["body"]
+
+
+@pytest.mark.parametrize(
+    "basis",
+    [
+        CUSTOMER,
+        CHECKED,
+        dict(CUSTOMER, consent_record="paper"),
+        dict(CUSTOMER, purposes="recording,analysis"),
+        {k: v for k, v in CHECKED.items() if k != "checked_at"},
+    ],
+    ids=[
+        "customer entered",
+        "checked",
+        "refused: consent record",
+        "refused: unknown key",
+        "partial",
+    ],
+)
+@pytest.mark.parametrize("carrier", CARRIERS)
+def test_with_a_counted_tenant_the_basis_tags_are_dropped(tmp_path, carrier, basis):
+    """Built or refused, the basis is not also kept as tags; every other tag is."""
+    vcon = _post(tmp_path, carrier, basis)
+    tags = _tags(vcon)
+
+    assert not [t for t in tags if t.startswith(BASIS_TAG)]
+    assert f"annotation_tenant:{TENANT}" in tags
+    for name, value in FORMS[carrier]:
+        if name.startswith("Annotation-"):
+            assert f"annotation_{name[len('Annotation-'):]}:{value}" in tags
+    assert basis["chosen_by"] not in json.dumps(tags)
+
+
+def test_the_justification_and_names_are_in_the_vcon_once(tmp_path):
+    vcon = _post(tmp_path, "telnyx", CHECKED)
+    wire = vcon.to_json()
+    for key in ("justification", "chosen_by", "evidence", "checked_by", "chosen_at"):
+        assert wire.count(json.dumps(CHECKED[key])[1:-1]) == (2 if key in PROOF_KEYS else 1), key
+
+
+@pytest.mark.parametrize("case", sorted(NO_TENANT_CASES))
+def test_without_a_counted_tenant_the_basis_tags_stay(tmp_path, case):
+    tags = _tags(post_no_tenant_case("telnyx", case, tmp_path))
+    assert [t.split(":", 1)[0] for t in tags if t.startswith(BASIS_TAG)] == [
+        BASIS_TAG + k for k in CHECKED
     ]
 
 

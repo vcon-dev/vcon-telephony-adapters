@@ -29,6 +29,9 @@ TELNYX_API_HOSTS = ("api.telnyx.com",)
 # it adds `Annotation-tenant`. Anything else is not a tenant.
 TENANT_ID = re.compile(r"t-[0-9a-f]{16}")
 
+# The annotation names of the tenant's basis fields (`Annotation-basis_<key>`), the whole space.
+BASIS_ANNOTATION = "basis_"
+
 
 def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
     """The attachment that names the tenant a call belongs to.
@@ -292,7 +295,13 @@ class TelnyxRecordingData(BaseRecordingData):
             if self._payload.get(key):
                 tags[key] = self._payload[key]
 
+        # With a tenant that counts, the basis fields become the tenant's lawful_basis attachment
+        # (or are refused), so they are not also kept as tags: the justification and names would
+        # be in the vCon twice. Without one, every annotation stays a tag, as before.
+        tenant, _ = relayed_tenant(self)
         for name, value in (self._payload.get("annotations") or {}).items():
+            if tenant is not None and name.startswith(BASIS_ANNOTATION):
+                continue
             tags[f"annotation_{name}"] = value
 
         return tags
@@ -383,7 +392,8 @@ class TelnyxVconBuilder(BaseVconBuilder):
         the attachment is built from the relayed `Annotation-basis_<key>` fields alone
         (`RelayedLawfulBasis`), with the deployment's purposes. No basis fields, or fields that
         are invalid or partial, mean no lawful_basis attachment at all and one line naming
-        only the reason.
+        only the reason. With a tenant the basis fields are not also kept as tags
+        (`TelnyxRecordingData.platform_tags`).
         """
         tenant, _ = relayed_tenant(recording_data)
         relayed = getattr(recording_data, "relayed_basis", None) or {}

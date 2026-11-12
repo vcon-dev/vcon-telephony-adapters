@@ -160,9 +160,11 @@ CONSENT_RECORDS = frozenset({"off", "jlinc"})
 ENTERED_BY = frozenset({"customer", "partner", "staff"})
 
 # Stated in every basis. A partner or staff entry also needs the customer's signed document and
-# the staff check of it; a customer's own entry needs neither.
+# the staff check of it; a customer's own entry needs neither. Whoever entered the basis, the
+# document is recorded as proof only when it and the check of it all arrive.
 _ALWAYS_REQUIRED = ("lawful_basis", "justification", "consent_record", "chosen_by", "entered_by")
 _CHECKED_ENTRY_REQUIRED = ("evidence", "checked_by", "checked_at")
+_PROOF_FIELDS = _CHECKED_ENTRY_REQUIRED
 
 
 class RelayedBasisError(ValueError):
@@ -189,9 +191,10 @@ class RelayedLawfulBasis(LawfulBasisConfig):
     Never mixed with the deployment's global basis: the basis and justification are the
     tenant's, purposes are the deployment's `LAWFUL_BASIS_PURPOSES` (the same for every
     tenant), and there is no expiration. The other seven fields go in `metadata` under their
-    own keys. A `signed_document` proof is added only for a partner or staff entry, which
-    always carries the customer's signed document and the staff check of it; a basis the
-    customer entered itself records no proof.
+    own keys. A `signed_document` proof is added only when a signed document was uploaded and
+    staff checked it, that is when `evidence`, `checked_by` and `checked_at` all arrive,
+    whoever entered the basis. A partner or staff entry always has all three; a customer's own
+    entry without them records no proof.
 
     `from_fields` refuses anything invalid or partial, so nothing is ever filled in.
     """
@@ -206,7 +209,7 @@ class RelayedLawfulBasis(LawfulBasisConfig):
         # Every field but the basis itself, justification first, as `apply` has always put it.
         self.metadata = {k: fields[k] for k in RELAYED_BASIS_KEYS[1:] if k in fields}
         self.proof = None
-        if fields["entered_by"] != "customer":
+        if all(key in fields for key in _PROOF_FIELDS):
             self.proof = {
                 "timestamp": fields["checked_at"],
                 "proof_data": {"document": fields["evidence"], "checked_by": fields["checked_by"]},

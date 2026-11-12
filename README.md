@@ -392,8 +392,11 @@ When the tenant counts by the rule above, the vCon's `lawful_basis` attachment i
 these fields alone, in place of the global `LAWFUL_BASIS`. When the tenant does not count (no
 field, an untrusted request, two tenants, or a value that is not a tenant id), the basis fields
 are ignored and the vCon is exactly what it was before, global basis included; an untrusted
-request logs `Annotation-basis_* ignored: <reason>`. Each field also stays an
-`annotation_basis_<key>` tag, as every annotation does.
+request logs `Annotation-basis_* ignored: <reason>`. Without a tenant that counts, each basis
+field also stays an `annotation_basis_<key>` tag, as every annotation does. With one, whether
+the attachment is built or refused, the `annotation_basis_*` tags are dropped, so the
+justification and names are not in the vCon twice; `annotation_tenant` and every other tag
+stay.
 
 | Field | Goes to |
 |---|---|
@@ -409,11 +412,13 @@ request logs `Annotation-basis_* ignored: <reason>`. Each field also stays an
 
 - `purpose_grants` are the adapter's `LAWFUL_BASIS_PURPOSES`, the same for every tenant, each
   granted at build time. `expiration` is always `null`. Neither comes from the relay.
-- A partner or staff entry gets one `proof_mechanisms` entry, `{"proof_type":
-  "signed_document", "timestamp": <checked_at>, "proof_data": {"document": <evidence>,
-  "checked_by": <checked_by>}}`. A basis the customer entered itself records no proof, even
-  when a document or check is present; who chose it, when, and that the customer entered it
-  are in `metadata`.
+- A signed document is recorded as proof only when one was uploaded and staff checked it:
+  when `evidence`, `checked_by` and `checked_at` all arrive, whoever entered the basis, the
+  attachment gets one `proof_mechanisms` entry, `{"proof_type": "signed_document",
+  "timestamp": <checked_at>, "proof_data": {"document": <evidence>, "checked_by":
+  <checked_by>}}`. A partner or staff entry always has all three (or is refused, below). A
+  customer's own entry without all three records no proof; who chose it, when, and that the
+  customer entered it are in `metadata`.
 - Nothing else of the global configuration is used: not `LAWFUL_BASIS`,
   `LAWFUL_BASIS_JUSTIFICATION` or `LAWFUL_BASIS_EXPIRATION`.
 
@@ -449,6 +454,11 @@ naming only the reason, never a value:
 Such a vCon carries its tenant and no basis. It is noticed in the adapter's log line,
 by vcon-mcp's lawful basis warnings when it is stored (`no lawful_basis attachment`), and by
 any consent check further down the chain.
+
+vcon-mcp's lawful basis warnings also flag a tenant's basis that is built: `expiration is
+missing` for any basis but `legitimate_interests`, since a tenant's basis has no expiration,
+and `proof_mechanisms is empty` for an entry with no checked document. Both are accepted for
+now and expected.
 
 ---
 
