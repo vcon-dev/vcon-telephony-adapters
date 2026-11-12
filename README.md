@@ -344,9 +344,24 @@ and SignalWire `record_call` reshaped into this form. Each field whose name afte
 1 to 64 letters, digits or underscores becomes an `annotation_<name>` tag. Annotations are
 exactly as trusted as the rest of the form.
 
-One annotation also builds an attachment. When the form carries `Annotation-tenant`, in exactly
-that case, and its value is a tenant id (`t-` and 16 lowercase hex digits), the vCon gains this
-attachment after all the others:
+One annotation also builds an attachment, because it decides whose data the call is. It is
+honoured only from a request trusted as coming from the relay:
+
+- the request carries `?token=` and it matches `TELNYX_TEXML_CALLBACK_TOKEN`, from any peer; or
+- the request carries no token and the connection comes from loopback (`127.0.0.1` or `::1`).
+
+A request with a wrong token is never trusted, even from loopback. The peer is the client
+address the server reports, never a header the client sends. Under `uvicorn.run`, as `main.py`
+starts it, that address is rewritten from `X-Forwarded-For` only when the connecting peer is
+in `FORWARDED_ALLOW_IPS` (`127.0.0.1` by default). So never set `FORWARDED_ALLOW_IPS=*`, and
+make sure a reverse proxy on the same host as the adapter sets `X-Forwarded-For`; otherwise
+everything it forwards looks local. Where either cannot be guaranteed, set the token and have
+the relay send it. An untrusted request is still processed as before, tag included, and the
+adapter logs one line naming only the reason the field was ignored.
+
+From a trusted relay, when the form carries `Annotation-tenant`, in exactly that case, and its
+value is a tenant id (`t-` and 16 lowercase hex digits), the vCon gains this attachment after
+all the others:
 
 ```json
 {"purpose": "tenant", "start": "2026-11-06T18:00:00+00:00", "party": 0, "dialog": 0,
@@ -359,8 +374,10 @@ attachment after all the others:
 - The `annotation_tenant` tag is kept as before.
 - With no `Annotation-tenant` field the vCon is exactly what it was before this attachment
   existed. Any other value adds no attachment and logs a warning naming only the value's type,
-  never the value. If the field appears more than once, the last one counts, for the tag and
-  the attachment alike; the relaying receiver adds its own last.
+  never the value.
+- If the field appears more than once with different values, no attachment is added and a
+  warning says why. The same value repeated counts once. The tag still takes the last field,
+  as before.
 - Lawful basis is unchanged: the adapter applies the one `LAWFUL_BASIS` it is configured with.
 
 A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a

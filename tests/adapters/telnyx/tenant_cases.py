@@ -33,6 +33,10 @@ GOLDENS = Path(__file__).parent / "fixtures" / "tenant"
 TENANT = "t-00000000000000a1"
 INVALID = "t-4f2a"  # the design's shorthand id: too short to be a real one
 
+# Client addresses for the connection. The receiver posts from loopback on the same host.
+LOOPBACK = ("127.0.0.1", 40000)
+REMOTE = ("203.0.113.9", 40000)  # documentation range (RFC 5737)
+
 FORMS: dict[str, list[tuple[str, str]]] = {
     # Telnyx TeXML recording callback, forwarded by the receiver's /recording.
     "telnyx": [
@@ -122,11 +126,36 @@ def form_body(carrier: str, tenant: str | None = None) -> bytes:
     return urllib.parse.urlencode(pairs).encode()
 
 
-def post_forward(body: bytes, state_dir: str | os.PathLike[str], **env_overrides: str | None):
+def adapter_env(state_dir: str | os.PathLike[str], **overrides: str | None) -> dict[str, str]:
+    """The process environment for one test app: this shell's, minus every adapter variable,
+    plus `ADAPTER_ENV` and `overrides` (None drops a variable)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(_ADAPTER_ENV_PREFIXES)}
+    env.update(ADAPTER_ENV, STATE_FILE=str(Path(state_dir) / "state.json"))
+    for key, value in overrides.items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
+    return env
+
+
+def post_forward(
+    body: bytes,
+    state_dir: str | os.PathLike[str],
+    *,
+    peer: tuple[str, int] = LOOPBACK,
+    query: str = "",
+    headers: dict[str, str] | None = None,
+    wrap=None,
+    expect_status: int = 200,
+    **env_overrides: str | None,
+):
     """POST one forward through the real webhook and the real builder.
 
-    Only the conserver post is replaced. `env_overrides` change `ADAPTER_ENV`, None dropping
-    a variable. Returns the Vcon the adapter would have posted, or None if it posted nothing.
+    Only the conserver post is replaced. `peer` is the connection's client address (the
+    receiver posts from loopback), `query` the URL query, `wrap` an optional ASGI middleware
+    put in front of the app. `env_overrides` change `ADAPTER_ENV`, None dropping a variable.
+    Returns the Vcon the adapter would have posted, or None if it posted nothing.
     `built_after` is set on the result: a time just before the build, so `normalized` can tell
     the times the build generated.
     """
@@ -134,27 +163,24 @@ def post_forward(body: bytes, state_dir: str | os.PathLike[str], **env_overrides
     from adapters.telnyx.config import TelnyxConfig
     from adapters.telnyx.webhook import create_app
 
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_ADAPTER_ENV_PREFIXES)}
-    env.update(ADAPTER_ENV, STATE_FILE=str(Path(state_dir) / "state.json"))
-    for key, value in env_overrides.items():
-        if value is None:
-            env.pop(key, None)
-        else:
-            env[key] = value
     with (
-        patch.dict(os.environ, env, clear=True),
+        patch.dict(os.environ, adapter_env(state_dir, **env_overrides), clear=True),
         patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
     ):
         poster = MagicMock()
         poster.post.return_value = True
         poster_cls.return_value = poster
-        client = TestClient(create_app(TelnyxConfig()))
+        app = create_app(TelnyxConfig())
+        client = TestClient(wrap(app) if wrap else app, client=peer)
         response = client.post(
-            "/webhook/texml-recording",
+            "/webhook/texml-recording" + (f"?{query}" if query else ""),
             content=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={"Content-Type": "application/x-www-form-urlencoded", **(headers or {})},
         )
-    assert response.status_code == 200 and response.text == "OK"
+    assert response.status_code == expect_status, response.text
+    if expect_status != 200:
+        return None
+    assert response.text == "OK"
     if not poster.post.called:
         return None
     (vcon,), _ = poster.post.call_args

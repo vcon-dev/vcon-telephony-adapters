@@ -21,6 +21,13 @@ from .provision import TelnyxProvisioner, handle_call_event
 # Relayed TeXML form fields with this prefix become annotation_<name> tags.
 ANNOTATION_PREFIX = "Annotation-"
 
+# The one annotation that also builds an attachment, and only from a trusted relay.
+TENANT_FIELD = "Annotation-tenant"
+
+# Peer addresses trusted as the relay without a token. The ASGI client address, never a
+# header: uvicorn rewrites it from X-Forwarded-For only for a peer in FORWARDED_ALLOW_IPS.
+LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
+
 logger = logging.getLogger(__name__)
 
 
@@ -253,8 +260,31 @@ def create_app(config: TelnyxConfig) -> FastAPI:
 
         return await _process_recording_event(event_data)
 
-    async def _process_recording_event(event_data: dict) -> str:
-        """Shared by the Call Control JSON webhook and the TeXML form callback."""
+    def relay_distrust(request: Request) -> str | None:
+        """None when this request is trusted as relayed, else the reason it is not.
+
+        Trusted means the route's token is configured and the request carries it, or, with
+        no token on the request, the peer is loopback. A wrong token is never trusted, even
+        from loopback.
+        """
+        token = request.query_params.get("token", "")
+        if config.texml_callback_token and token:
+            if hmac.compare_digest(token.encode(), config.texml_callback_token.encode()):
+                return None
+            return "the callback token does not match"
+        if request.client is not None and request.client.host in LOOPBACK_PEERS:
+            return None
+        return "no matching callback token and the peer is not loopback"
+
+    async def _process_recording_event(
+        event_data: dict,
+        relayed_tenants: list[str] | None = None,
+        relay_trusted: bool = False,
+    ) -> str:
+        """Shared by the Call Control JSON webhook and the TeXML form callback.
+
+        Only the TeXML route passes `relayed_tenants` and `relay_trusted`.
+        """
         # Check event type
         data = event_data.get("data", event_data)
         event_type = data.get("event_type", "")
@@ -279,7 +309,11 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 logger.warning("Recording lookup failed: %s", exc)
 
         recording_data = TelnyxRecordingData(
-            event_data, session=session, recording_meta=recording_meta
+            event_data,
+            session=session,
+            recording_meta=recording_meta,
+            relayed_tenants=relayed_tenants or (),
+            relay_trusted=relay_trusted,
         )
         recording_id = recording_data.recording_id
 
@@ -348,8 +382,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         A service that relays this callback can add `Annotation-<name>` fields, for
         example which recording notice it played. Each becomes an `annotation_<name>`
         tag on the vCon. They are exactly as trusted as the rest of this form.
-        `Annotation-tenant` also gives the vCon its tenant attachment when the value is a
-        tenant id (`TelnyxVconBuilder._attach_tenant`).
+        `Annotation-tenant` also gives the vCon its tenant attachment, but only when the
+        request is trusted as relayed (`relay_distrust`) and the form names one tenant id
+        (`TelnyxVconBuilder._attach_tenant`).
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
@@ -400,7 +435,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 "payload": payload,
             }
         }
-        return await _process_recording_event(event_data)
+        relayed_tenants = [str(v) for v in form.getlist(TENANT_FIELD)]
+        distrust = relay_distrust(request)
+        if relayed_tenants and distrust:
+            logger.warning("%s ignored: %s", TENANT_FIELD, distrust)
+        return await _process_recording_event(
+            event_data, relayed_tenants=relayed_tenants, relay_trusted=distrust is None
+        )
 
     @app.get("/status/{recording_id}")
     async def get_recording_status(recording_id: str):

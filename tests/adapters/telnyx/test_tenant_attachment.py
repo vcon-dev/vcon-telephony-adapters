@@ -2,9 +2,11 @@
 
 The receiver adds the field, last, to the three recording callbacks it forwards here (Telnyx
 TeXML, a bridge leg, and SignalWire reshaped into the TeXML form) and leaves it out for a call
-it cannot place. Every case below goes through the real `/webhook/texml-recording` handler and
-the real `TelnyxVconBuilder`; only the conserver post is captured. Payloads and goldens are in
-`tenant_cases.py`.
+it cannot place. It posts from loopback on the same host. The field counts only from a request
+trusted as relayed: the route's token configured and matched, or a loopback peer. Every case
+below goes through the real `/webhook/texml-recording` handler and the real
+`TelnyxVconBuilder`, from loopback unless it says otherwise; only the conserver post is
+captured. Payloads and goldens are in `tenant_cases.py`.
 """
 
 import json
@@ -12,26 +14,36 @@ import logging
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import jsonschema
 import pytest
+from fastapi.testclient import TestClient
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from adapters.telnyx.builder import (
     TelnyxRecordingData,
     TelnyxVconBuilder,
     tenant_attachment,
 )
+from adapters.telnyx.config import TelnyxConfig
+from adapters.telnyx.webhook import create_app
 
 from .tenant_cases import (
     CARRIERS,
     FORMS,
     INVALID,
+    LOOPBACK,
+    REMOTE,
     TENANT,
+    adapter_env,
     form_body,
     golden_path,
     normalized,
     post_forward,
 )
+
+TOKEN = "synthetic-callback-token"
 
 WG_SCHEMA = json.loads((Path(__file__).parents[2] / "schema" / "vcon_json_schema.json").read_text())
 
@@ -168,14 +180,17 @@ def test_an_empty_value_adds_nothing(tmp_path):
     assert _tenant_attachments(vcon) == []
 
 
+def _call_control_event():
+    return json.loads(
+        (Path(__file__).parent / "fixtures" / "call_recording_saved.json").read_text()
+    )
+
+
 def test_a_non_string_value_adds_nothing_and_logs_its_type(caplog):
     """Only a relayed form reaches here in practice, where every value is a string."""
     caplog.set_level(logging.WARNING, logger="adapters.telnyx.builder")
-    event = json.loads(
-        (Path(__file__).parent / "fixtures" / "call_recording_saved.json").read_text()
-    )
-    event["data"]["payload"]["annotations"] = {"tenant": 1234}
-    vcon = TelnyxVconBuilder(download_recordings=False).build(TelnyxRecordingData(event))
+    data = TelnyxRecordingData(_call_control_event(), relayed_tenants=[1234], relay_trusted=True)
+    vcon = TelnyxVconBuilder(download_recordings=False).build(data)
 
     assert vcon is not None and _tenant_attachments(vcon) == []
     assert any("(int)" in r.getMessage() for r in caplog.records)
@@ -188,28 +203,187 @@ def test_only_the_exact_field_name_counts(tmp_path, name):
 
 
 def test_a_call_control_event_with_no_annotations_has_no_tenant_attachment():
-    event = json.loads(
-        (Path(__file__).parent / "fixtures" / "call_recording_saved.json").read_text()
+    vcon = TelnyxVconBuilder(download_recordings=False).build(
+        TelnyxRecordingData(_call_control_event())
     )
-    vcon = TelnyxVconBuilder(download_recordings=False).build(TelnyxRecordingData(event))
     assert vcon is not None and _tenant_attachments(vcon) == []
 
 
-# ---- repeated fields: the last one, as the receiver adds its own last
+def test_the_builder_attaches_nothing_without_the_route_s_trust():
+    data = TelnyxRecordingData(_call_control_event(), relayed_tenants=[TENANT])
+    vcon = TelnyxVconBuilder(download_recordings=False).build(data)
+    assert vcon is not None and _tenant_attachments(vcon) == []
 
 
-def test_with_the_field_twice_the_last_one_is_the_tenant(tmp_path):
+def test_a_json_body_cannot_claim_trust_or_a_tenant(tmp_path):
+    """The Call Control route takes JSON; trust is an argument, so no field can forge it."""
+    event = _call_control_event()
+    event["data"]["payload"].update(
+        relay_trusted=True,
+        relayed_tenants=[TENANT],
+        tenant_values=[TENANT],
+        annotations={"tenant": TENANT},
+    )
+    with (
+        patch.dict("os.environ", adapter_env(tmp_path), clear=True),
+        patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
+    ):
+        poster_cls.return_value.post.return_value = True
+        client = TestClient(create_app(TelnyxConfig()), client=LOOPBACK)
+        assert client.post("/webhook/recording", json=event).text == "OK"
+    (vcon,), _ = poster_cls.return_value.post.call_args
+    assert _tenant_attachments(vcon) == []
+
+
+# ---- which requests are trusted as relayed: the route's token, or a loopback peer
+
+
+@pytest.mark.parametrize("peer", [LOOPBACK, ("::1", 40000)], ids=["127.0.0.1", "::1"])
+def test_a_loopback_peer_with_no_token_attaches(tmp_path, peer):
+    vcon = post_forward(form_body("telnyx", TENANT), tmp_path, peer=peer)
+    assert [a["body"] for a in _tenant_attachments(vcon)] == [{"id": TENANT}]
+
+
+@pytest.mark.parametrize("validate", ["true", "false"])
+def test_a_matched_token_attaches_from_any_peer(tmp_path, validate):
+    vcon = post_forward(
+        form_body("telnyx", TENANT),
+        tmp_path,
+        peer=REMOTE,
+        query=f"token={TOKEN}",
+        TELNYX_TEXML_CALLBACK_TOKEN=TOKEN,
+        VALIDATE_TELNYX_WEBHOOK=validate,
+        ALLOW_UNSIGNED_WEBHOOKS="true",
+    )
+    assert [a["body"] for a in _tenant_attachments(vcon)] == [{"id": TENANT}]
+
+
+def _untrusted(tmp_path, caplog, reason, **kwargs):
+    """Posted with a valid tenant but untrusted: no attachment, tag and log as described."""
+    caplog.set_level(logging.WARNING, logger="adapters.telnyx.webhook")
+    vcon = post_forward(form_body("telnyx", TENANT), tmp_path, **kwargs)
+
+    assert _tenant_attachments(vcon) == []
+    assert (
+        normalized(vcon) + "\n" == golden_path("telnyx", "valid").read_text()
+    ), "the vCon is what it was before the attachment existed, tag included"
+    [line] = [r.getMessage() for r in caplog.records if "Annotation-tenant" in r.getMessage()]
+    assert line == f"Annotation-tenant ignored: {reason}"
+    assert TENANT not in line and TOKEN not in line
+
+
+NOT_LOOPBACK = "no matching callback token and the peer is not loopback"
+WRONG_TOKEN = "the callback token does not match"
+
+
+def test_a_remote_peer_with_no_token_does_not_attach(tmp_path, caplog):
+    _untrusted(tmp_path, caplog, NOT_LOOPBACK, peer=REMOTE)
+
+
+def test_a_remote_peer_with_no_token_configured_does_not_attach(tmp_path, caplog):
+    """A token on the request means nothing when the route has none configured."""
+    _untrusted(tmp_path, caplog, NOT_LOOPBACK, peer=REMOTE, query=f"token={TOKEN}")
+
+
+def test_a_spoofed_forwarded_for_header_does_not_count(tmp_path, caplog):
+    _untrusted(
+        tmp_path,
+        caplog,
+        NOT_LOOPBACK,
+        peer=REMOTE,
+        headers={
+            "X-Forwarded-For": "127.0.0.1",
+            "X-Real-IP": "127.0.0.1",
+            "Forwarded": "for=127.0.0.1",
+        },
+    )
+
+
+def test_through_uvicorn_proxy_headers_a_spoofed_header_from_a_remote_peer_does_not_count(
+    tmp_path, caplog
+):
+    """uvicorn.run's default: X-Forwarded-For is believed only from 127.0.0.1."""
+    _untrusted(
+        tmp_path,
+        caplog,
+        NOT_LOOPBACK,
+        peer=REMOTE,
+        headers={"X-Forwarded-For": "127.0.0.1"},
+        wrap=ProxyHeadersMiddleware,
+    )
+
+
+def test_through_uvicorn_proxy_headers_a_local_proxy_forwarding_a_remote_client_does_not_count(
+    tmp_path, caplog
+):
+    _untrusted(
+        tmp_path,
+        caplog,
+        NOT_LOOPBACK,
+        peer=LOOPBACK,
+        headers={"X-Forwarded-For": REMOTE[0]},
+        wrap=ProxyHeadersMiddleware,
+    )
+
+
+@pytest.mark.parametrize("peer", [REMOTE, LOOPBACK], ids=["remote", "loopback"])
+def test_a_wrong_token_does_not_attach_even_from_loopback(tmp_path, caplog, peer):
+    """With validation off the route lets the callback in, but it is not trusted as relayed."""
+    _untrusted(
+        tmp_path,
+        caplog,
+        WRONG_TOKEN,
+        peer=peer,
+        query="token=not-the-token",
+        TELNYX_TEXML_CALLBACK_TOKEN=TOKEN,
+    )
+
+
+def test_with_validation_on_a_wrong_token_is_refused_as_before(tmp_path):
+    post_forward(
+        form_body("telnyx", TENANT),
+        tmp_path,
+        query="token=not-the-token",
+        expect_status=403,
+        TELNYX_TEXML_CALLBACK_TOKEN=TOKEN,
+        VALIDATE_TELNYX_WEBHOOK="true",
+        ALLOW_UNSIGNED_WEBHOOKS="true",
+    )
+
+
+def test_an_untrusted_request_with_no_tenant_field_logs_nothing(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="adapters.telnyx.webhook")
+    vcon = post_forward(form_body("telnyx"), tmp_path, peer=REMOTE)
+    assert normalized(vcon) + "\n" == golden_path("telnyx", "absent").read_text()
+    assert not [r for r in caplog.records if "Annotation-tenant" in r.getMessage()]
+
+
+# ---- repeated fields: two different tenants is no tenant
+
+
+def test_two_different_tenants_add_nothing_and_say_why(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="adapters.telnyx.builder")
     other = "t-00000000000000b2"
     body = urllib.parse.urlencode(
         [*FORMS["telnyx"], ("Annotation-tenant", other), ("Annotation-tenant", TENANT)]
     ).encode()
     vcon = _post(tmp_path, "telnyx", body=body)
 
+    assert _tenant_attachments(vcon) == []
+    assert _tags(vcon)["annotation_tenant"] == TENANT, "the tag takes the last field, as before"
+    [line] = [r.getMessage() for r in caplog.records if "tenant" in r.getMessage()]
+    assert "more than one tenant" in line and TENANT not in line and other not in line
+
+
+def test_the_same_tenant_twice_attaches_once(tmp_path):
+    body = urllib.parse.urlencode(
+        [*FORMS["telnyx"], ("Annotation-tenant", TENANT), ("Annotation-tenant", TENANT)]
+    ).encode()
+    vcon = _post(tmp_path, "telnyx", body=body)
     assert [a["body"] for a in _tenant_attachments(vcon)] == [{"id": TENANT}]
-    assert _tags(vcon)["annotation_tenant"] == TENANT, "the tag takes the same field"
 
 
-def test_a_valid_field_followed_by_an_invalid_one_adds_nothing(tmp_path):
+def test_a_valid_field_and_an_invalid_one_add_nothing(tmp_path):
     body = urllib.parse.urlencode(
         [*FORMS["telnyx"], ("Annotation-tenant", TENANT), ("Annotation-tenant", INVALID)]
     ).encode()

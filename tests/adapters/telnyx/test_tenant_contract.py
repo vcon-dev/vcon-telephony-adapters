@@ -17,11 +17,14 @@ The extractor is run with its default configuration (attachment purpose `tenant`
 import json
 import os
 import subprocess
+import urllib.parse
 from pathlib import Path
 
 import pytest
 
-from .tenant_cases import CARRIERS, INVALID, TENANT, form_body, post_forward
+from adapters.telnyx.webhook import TENANT_FIELD
+
+from .tenant_cases import CARRIERS, FORMS, INVALID, REMOTE, TENANT, form_body, post_forward
 
 VCON_MCP_DIR = os.environ.get("VCON_MCP_DIR")
 
@@ -83,6 +86,17 @@ def test_the_store_extractor_reads_the_tenant_from_real_builder_output(tmp_path)
             state.mkdir()
             vcon = post_forward(form_body(carrier, tenant), state)
             cases.append((f"{carrier}/{name}", wire(vcon), expected))
+
+    # A valid tenant from a peer not trusted as the relay, and two different tenants.
+    state = tmp_path / "untrusted"
+    state.mkdir()
+    vcon = post_forward(form_body("telnyx", TENANT), state, peer=REMOTE)
+    cases.append(("telnyx/valid, untrusted peer", wire(vcon), None))
+    state = tmp_path / "conflict"
+    state.mkdir()
+    pairs = [*FORMS["telnyx"], (TENANT_FIELD, "t-00000000000000b2"), (TENANT_FIELD, TENANT)]
+    vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state)
+    cases.append(("telnyx/two different tenants", wire(vcon), None))
 
     # Controls, so a reader that returned the same answer for everything would fail: the
     # string-body form the design warns reads as no tenant, and a bare object reads.

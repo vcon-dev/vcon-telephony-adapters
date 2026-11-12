@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -103,6 +104,8 @@ class TelnyxRecordingData(BaseRecordingData):
         event_data: dict[str, Any],
         session: "CallSession | None" = None,
         recording_meta: dict[str, Any] | None = None,
+        relayed_tenants: Sequence[Any] = (),
+        relay_trusted: bool = False,
     ):
         """Initialize from Telnyx webhook event data.
 
@@ -110,6 +113,9 @@ class TelnyxRecordingData(BaseRecordingData):
             event_data: the raw webhook event
             session: accumulated lifecycle facts for this call, if any
             recording_meta: the recordings-API resource, if it was fetched
+            relayed_tenants: every `Annotation-tenant` value on a relayed form, in order
+            relay_trusted: True only when the route trusted the request as coming from the
+                relay. Arguments, not event fields, so no request body can set them.
 
         The recording event alone cannot name the parties. Either supplement
         supplies `from`/`to`; without one, the vCon is anonymous and the
@@ -117,6 +123,8 @@ class TelnyxRecordingData(BaseRecordingData):
         """
         self._session = session
         self._recording_meta = recording_meta or {}
+        self.relayed_tenants = tuple(relayed_tenants)
+        self.relay_trusted = relay_trusted is True
         # Handle nested structure
         if "data" in event_data and "payload" in event_data["data"]:
             self._payload = event_data["data"]["payload"]
@@ -262,11 +270,6 @@ class TelnyxRecordingData(BaseRecordingData):
 
         return tags
 
-    @property
-    def tenant_annotation(self) -> Any:
-        """The relayed `Annotation-tenant` value as received, unchecked; None when absent."""
-        return (self._payload.get("annotations") or {}).get("tenant")
-
 
 class TelnyxVconBuilder(BaseVconBuilder):
     """Build vCons from Telnyx recording events."""
@@ -323,16 +326,25 @@ class TelnyxVconBuilder(BaseVconBuilder):
         return vcon
 
     def _attach_tenant(self, vcon, recording_data: BaseRecordingData) -> None:
-        """Add the tenant attachment when a relaying receiver named the call's tenant.
+        """Add the tenant attachment when a trusted relay named the call's tenant.
 
         The source is the `Annotation-tenant` form field, which also stays an
-        `annotation_tenant` tag as before. With no such field the vCon is left exactly as it
-        was. A value that is not a tenant id adds nothing, and the log names only its type,
-        never the value. `start` is `created_at`, the same as every other attachment here.
+        `annotation_tenant` tag as before. Nothing is attached unless the route trusted the
+        request as relayed (it logs why not), the form names one tenant, and that value is a
+        tenant id. Logs name only the reason or the value's type, never the value. With no
+        such field the vCon is left exactly as it was. `start` is `created_at`, the same as
+        every other attachment here.
         """
-        value = getattr(recording_data, "tenant_annotation", None)
-        if value is None:
+        values = getattr(recording_data, "relayed_tenants", ())
+        if not values or getattr(recording_data, "relay_trusted", False) is not True:
             return
+        if len(set(values)) > 1:
+            logger.warning(
+                "vCon %s: the form names more than one tenant, so no tenant attachment",
+                vcon.uuid,
+            )
+            return
+        value = values[-1]
         if not (isinstance(value, str) and TENANT_ID.fullmatch(value)):
             logger.warning(
                 "vCon %s: annotation_tenant is not a tenant id (%s), so no tenant attachment",
