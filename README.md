@@ -378,10 +378,96 @@ all the others:
 - If the field appears more than once with different values, no attachment is added and a
   warning says why. The same value repeated counts once. The tag still takes the last field,
   as before.
-- Lawful basis is unchanged: the adapter applies the one `LAWFUL_BASIS` it is configured with.
+- The lawful basis of a vCon with this attachment is the tenant's own, never `LAWFUL_BASIS`
+  (next section).
 
 A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
 tenant.
+
+#### The tenant's own lawful basis
+
+Beside `Annotation-tenant` the relay sends the tenant's lawful basis record, one
+`Annotation-basis_<key>` field per key the record holds (a null field is absent, never empty).
+When the tenant counts by the rule above, the vCon's `lawful_basis` attachment is built from
+these fields alone, in place of the global `LAWFUL_BASIS`. When the tenant does not count (no
+field, an untrusted request, two tenants, or a value that is not a tenant id), the basis fields
+are ignored and the vCon is exactly what it was before, global basis included; an untrusted
+request logs `Annotation-basis_* ignored: <reason>`. Without a tenant that counts, each basis
+field also stays an `annotation_basis_<key>` tag, as every annotation does. With one, whether
+the attachment is built or refused, the `annotation_basis_*` tags are dropped, so the
+justification and names are not in the vCon twice; `annotation_tenant` and every other tag
+stay.
+
+| Field | Goes to |
+|---|---|
+| `Annotation-basis_lawful_basis` | `body.lawful_basis`: one of the six bases |
+| `Annotation-basis_justification` | `body.metadata.justification`, where `LAWFUL_BASIS_JUSTIFICATION` goes |
+| `Annotation-basis_consent_record` | `body.metadata.consent_record`: `off` or `jlinc` |
+| `Annotation-basis_chosen_by` | `body.metadata.chosen_by` |
+| `Annotation-basis_chosen_at` | `body.metadata.chosen_at`, as sent |
+| `Annotation-basis_entered_by` | `body.metadata.entered_by`: `customer`, `partner` or `staff` |
+| `Annotation-basis_evidence` | `body.metadata.evidence`, and the proof's `proof_data.document` |
+| `Annotation-basis_checked_by` | `body.metadata.checked_by`, and the proof's `proof_data.checked_by` |
+| `Annotation-basis_checked_at` | `body.metadata.checked_at`, and the proof's `timestamp` |
+
+- `purpose_grants` are the adapter's `LAWFUL_BASIS_PURPOSES`, the same for every tenant, each
+  granted at build time. `expiration` is always `null`. Neither comes from the relay.
+- A signed document is recorded as proof only when one was uploaded and staff checked it:
+  when `evidence`, `checked_by` and `checked_at` all arrive, whoever entered the basis, the
+  attachment gets one `proof_mechanisms` entry, `{"proof_type": "signed_document",
+  "timestamp": <checked_at>, "proof_data": {"document": <evidence>, "checked_by":
+  <checked_by>}}`. A partner or staff entry always has all three (or is refused, below). A
+  customer's own entry without all three records no proof; who chose it, when, and that the
+  customer entered it are in `metadata`.
+- `metadata` is the record as entered and the proof refers to it, so two values appear twice
+  on purpose. `evidence` is in `metadata` and is the proof's `proof_data.document`.
+  `metadata.checked_at` keeps the value as relayed, while the proof's `timestamp` comes out
+  as vcon-lib normalises it, with `+00:00` for `Z`; both carry a zone.
+- Nothing else of the global configuration is used: not `LAWFUL_BASIS`,
+  `LAWFUL_BASIS_JUSTIFICATION` or `LAWFUL_BASIS_EXPIRATION`.
+
+A customer's own entry gives (values synthetic):
+
+```json
+{"purpose": "lawful_basis", "encoding": "json",
+ "body": {"lawful_basis": "contract", "expiration": null,
+          "purpose_grants": [{"purpose": "recording", "granted": true,
+                              "granted_at": "2026-11-12T16:15:56.839624+00:00"}],
+          "metadata": {"justification": "Synthetic: recordings serve the synthetic service contract.",
+                       "consent_record": "off", "chosen_by": "synthetic customer admin",
+                       "chosen_at": "2026-11-01T09:00:00Z", "entered_by": "customer"}},
+ "party": 0, "dialog": 0, "mediatype": "application/json",
+ "start": "2026-11-12T16:15:56.839532+00:00"}
+```
+
+**Fail closed.** A tenant gets no `lawful_basis` attachment at all, and never the global one,
+when the relay sent no basis fields, or when any of these holds; the adapter logs one line
+naming only the reason, never a value:
+
+- a field the relay never sends (`Annotation-basis_purposes`, `_expiration`, `_source`, or any
+  other key), or one field with two different values (the same value twice counts once);
+- a value that is blank or not text;
+- `lawful_basis`, `justification`, `consent_record`, `chosen_by` or `entered_by` missing, or a
+  partner or staff entry without `evidence`, `checked_by` and `checked_at`;
+- a basis outside the six, a consent record other than `off` or `jlinc`, or `entered_by`
+  other than `customer`, `partner` or `staff`, compared exactly;
+- `checked_by` without `checked_at` or the reverse, or a `checked_at` that is not an ISO 8601
+  time with a zone;
+- `LAWFUL_BASIS_PURPOSES` empty.
+
+Because an unknown key refuses the whole basis, deploy order matters when the relay starts
+sending a new `Annotation-basis_<key>`: deploy the adapter that knows the key first, then the
+receiver. The other way round, every tenant's vCon goes without a basis until the adapter
+catches up.
+
+Such a vCon carries its tenant and no basis. It is noticed in the adapter's log line,
+by vcon-mcp's lawful basis warnings when it is stored (`no lawful_basis attachment`), and by
+any consent check further down the chain.
+
+vcon-mcp's lawful basis warnings also flag a tenant's basis that is built: `expiration is
+missing` for any basis but `legitimate_interests`, since a tenant's basis has no expiration,
+and `proof_mechanisms is empty` for an entry with no checked document. Both are accepted for
+now and expected.
 
 ---
 
@@ -638,7 +724,7 @@ All adapters share these common configuration options:
 | `MEDIA_S3_REGION` | No | - | S3 region |
 | `MEDIA_S3_PREFIX` | No | - | Key prefix for published recordings in the bucket |
 | `MEDIA_S3_ENDPOINT_URL` | No | - | Endpoint URL for an S3-compatible store (DigitalOcean Spaces, MinIO, Telnyx Cloud Storage); leave unset for AWS |
-| `LAWFUL_BASIS` | No | - | Why this deployment may hold the recording: `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, or `legitimate_interests`. Unset means no `lawful_basis` attachment is emitted; never defaulted |
+| `LAWFUL_BASIS` | No | - | Why this deployment may hold the recording: `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, or `legitimate_interests`. Unset means no `lawful_basis` attachment is emitted; never defaulted. On the Telnyx TeXML route a call whose tenant a trusted relay names never takes it (see "The tenant's own lawful basis") |
 | `LAWFUL_BASIS_PURPOSES` | No | `recording` | Comma-separated purposes granted under the basis |
 | `LAWFUL_BASIS_EXPIRATION` | No | - | ISO 8601 timestamp when the lawful basis expires |
 | `LAWFUL_BASIS_JUSTIFICATION` | No | - | Free-text justification, stored in the attachment's metadata |
@@ -858,8 +944,8 @@ webhook (or observer/poller) tests.
 `tests/e2e/freeswitch/` is a separate manual harness against a real, locally running
 FreeSWITCH instance; it is excluded from the default `pytest` run (see its own README).
 
-`tests/adapters/telnyx/test_tenant_contract.py` runs vcon-mcp's own tenant extractor,
-unmodified, on the JSON this adapter posts. It is skipped unless `VCON_MCP_DIR` names a
+`tests/adapters/telnyx/test_tenant_contract.py` runs vcon-mcp's own tenant extractor and
+lawful basis reader, unmodified, on the JSON this adapter posts. It is skipped unless `VCON_MCP_DIR` names a
 vcon-mcp checkout with its node dependencies installed. CI runs it in the `tenant-contract`
 job against a pinned vcon-mcp commit. Locally:
 

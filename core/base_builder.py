@@ -179,6 +179,22 @@ class BaseVconBuilder(ABC):
         """
         return f"{recording_url}.{self.recording_format}"
 
+    def _apply_lawful_basis(self, vcon: Vcon, recording_data: BaseRecordingData) -> None:
+        """Why we are entitled to hold this recording: the deployment's configured basis.
+
+        Emitted only when a deployment configured a basis; never invented on its behalf.
+        A subclass may choose a per-call basis instead (the Telnyx adapter does, for a call
+        whose tenant a trusted relay names).
+        """
+        if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+            logger.warning(
+                "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
+                "(consent | contract | legal_obligation | vital_interests | "
+                "public_task | legitimate_interests) before handling real "
+                "conversations.",
+                vcon.uuid,
+            )
+
     def _determine_originator(self, direction: str) -> int:
         """Determine which party originated the call.
 
@@ -284,17 +300,7 @@ class BaseVconBuilder(ABC):
             for tag_name, tag_value in recording_data.platform_tags.items():
                 vcon.add_tag(tag_name, tag_value)
 
-            # Why we are entitled to hold this recording. Emitted only when a
-            # deployment configured a basis; never invented on its behalf.
-            #
-            if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
-                logger.warning(
-                    "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
-                    "(consent | contract | legal_obligation | vital_interests | "
-                    "public_task | legitimate_interests) before handling real "
-                    "conversations.",
-                    vcon.uuid,
-                )
+            self._apply_lawful_basis(vcon, recording_data)
 
             # The official schema (draft-ietf-vcon-vcon-core-04, Attachment
             # Object) requires `start`, `party`, and `dialog` on every

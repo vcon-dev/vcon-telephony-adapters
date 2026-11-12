@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
-from core.lawful_basis import LawfulBasisConfig
+from core.lawful_basis import LawfulBasisConfig, RelayedBasisError, RelayedLawfulBasis
 from core.media_publisher import AudioPublisher
 
 from .call_session import (
@@ -28,6 +28,9 @@ TELNYX_API_HOSTS = ("api.telnyx.com",)
 # A tenant id: `t-` and 16 lowercase hex, the form the relaying receiver itself checks before
 # it adds `Annotation-tenant`. Anything else is not a tenant.
 TENANT_ID = re.compile(r"t-[0-9a-f]{16}")
+
+# The annotation names of the tenant's basis fields (`Annotation-basis_<key>`), the whole space.
+BASIS_ANNOTATION = "basis_"
 
 
 def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
@@ -47,6 +50,29 @@ def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
         "encoding": "json",
         "body": {"id": tenant_id},
     }
+
+
+def relayed_tenant(recording_data: Any) -> tuple[str | None, str | None]:
+    """The call's tenant as a trusted relay named it: (tenant id, None), else (None, problem).
+
+    A tenant counts only when the route trusted the request as relayed, the form names one
+    tenant, and that value is a tenant id. `problem` is None when there is nothing to say (no
+    field, or an untrusted request, which the route already logged), else the reason, naming
+    only the value's type, never the value. The tenant attachment and the tenant's lawful
+    basis both decide by this one rule.
+    """
+    values = getattr(recording_data, "relayed_tenants", ())
+    if not values or getattr(recording_data, "relay_trusted", False) is not True:
+        return None, None
+    if len(set(values)) > 1:
+        return None, "the form names more than one tenant, so no tenant attachment"
+    value = values[-1]
+    if not (isinstance(value, str) and TENANT_ID.fullmatch(value)):
+        return None, (
+            f"annotation_tenant is not a tenant id ({type(value).__name__}), "
+            "so no tenant attachment"
+        )
+    return value, None
 
 
 def _is_telnyx_host(url: str) -> bool:
@@ -106,6 +132,7 @@ class TelnyxRecordingData(BaseRecordingData):
         recording_meta: dict[str, Any] | None = None,
         relayed_tenants: Sequence[Any] = (),
         relay_trusted: bool = False,
+        relayed_basis: dict[str, Sequence[Any]] | None = None,
     ):
         """Initialize from Telnyx webhook event data.
 
@@ -116,6 +143,8 @@ class TelnyxRecordingData(BaseRecordingData):
             relayed_tenants: every `Annotation-tenant` value on a relayed form, in order
             relay_trusted: True only when the route trusted the request as coming from the
                 relay. Arguments, not event fields, so no request body can set them.
+            relayed_basis: every `Annotation-basis_<key>` value on a relayed form, by key,
+                in order. Read only beside a trusted tenant.
 
         The recording event alone cannot name the parties. Either supplement
         supplies `from`/`to`; without one, the vCon is anonymous and the
@@ -125,6 +154,7 @@ class TelnyxRecordingData(BaseRecordingData):
         self._recording_meta = recording_meta or {}
         self.relayed_tenants = tuple(relayed_tenants)
         self.relay_trusted = relay_trusted is True
+        self.relayed_basis = {k: tuple(v) for k, v in (relayed_basis or {}).items()}
         # Handle nested structure
         if "data" in event_data and "payload" in event_data["data"]:
             self._payload = event_data["data"]["payload"]
@@ -265,7 +295,13 @@ class TelnyxRecordingData(BaseRecordingData):
             if self._payload.get(key):
                 tags[key] = self._payload[key]
 
+        # With a tenant that counts, the basis fields become the tenant's lawful_basis attachment
+        # (or are refused), so they are not also kept as tags: the justification and names would
+        # be in the vCon twice. Without one, every annotation stays a tag, as before.
+        tenant, _ = relayed_tenant(self)
         for name, value in (self._payload.get("annotations") or {}).items():
+            if tenant is not None and name.startswith(BASIS_ANNOTATION):
+                continue
             tags[f"annotation_{name}"] = value
 
         return tags
@@ -295,7 +331,10 @@ class TelnyxVconBuilder(BaseVconBuilder):
         self.api_key = api_key
 
     def build(self, recording_data: BaseRecordingData):
-        """Build, then attach signalling detail from the lifecycle events and the call's tenant."""
+        """Build, then attach signalling detail from the lifecycle events and the call's tenant.
+
+        The lawful basis is chosen during the base build, by `_apply_lawful_basis`.
+        """
         vcon = super().build(recording_data)
         if vcon is None:
             return None
@@ -335,26 +374,57 @@ class TelnyxVconBuilder(BaseVconBuilder):
         such field the vCon is left exactly as it was. `start` is `created_at`, the same as
         every other attachment here.
         """
-        values = getattr(recording_data, "relayed_tenants", ())
-        if not values or getattr(recording_data, "relay_trusted", False) is not True:
-            return
-        if len(set(values)) > 1:
-            logger.warning(
-                "vCon %s: the form names more than one tenant, so no tenant attachment",
-                vcon.uuid,
-            )
-            return
-        value = values[-1]
-        if not (isinstance(value, str) and TENANT_ID.fullmatch(value)):
-            logger.warning(
-                "vCon %s: annotation_tenant is not a tenant id (%s), so no tenant attachment",
-                vcon.uuid,
-                type(value).__name__,
-            )
+        tenant, problem = relayed_tenant(recording_data)
+        if problem:
+            logger.warning("vCon %s: %s", vcon.uuid, problem)
+        if tenant is None:
             return
         vcon.vcon_dict.setdefault("attachments", []).append(
-            tenant_attachment(value, vcon.created_at)
+            tenant_attachment(tenant, vcon.created_at)
         )
+
+    def _apply_lawful_basis(self, vcon, recording_data: BaseRecordingData) -> None:
+        """The call's tenant's own basis when a trusted relay names the tenant, else as before.
+
+        With no tenant (no field, an untrusted request, two tenants, or a value that is not a
+        tenant id) the deployment's global basis applies exactly as it always has, and any
+        basis fields on the form are ignored. With a tenant, the global basis is never used:
+        the attachment is built from the relayed `Annotation-basis_<key>` fields alone
+        (`RelayedLawfulBasis`), with the deployment's purposes. No basis fields, or fields that
+        are invalid or partial, mean no lawful_basis attachment at all and one line naming
+        only the reason. With a tenant the basis fields are not also kept as tags
+        (`TelnyxRecordingData.platform_tags`).
+        """
+        tenant, _ = relayed_tenant(recording_data)
+        relayed = getattr(recording_data, "relayed_basis", None) or {}
+        if tenant is None:
+            if relayed and getattr(recording_data, "relay_trusted", False) is True:
+                logger.warning(
+                    "vCon %s: basis fields came with no usable tenant, so they are ignored",
+                    vcon.uuid,
+                )
+            super()._apply_lawful_basis(vcon, recording_data)
+            return
+
+        if not relayed:
+            logger.warning(
+                "vCon %s: the relay sent no lawful basis for the call's tenant, so no "
+                "lawful_basis attachment; the global basis is never used for a tenant",
+                vcon.uuid,
+            )
+            return
+        purposes = self.lawful_basis.purposes if self.lawful_basis is not None else ()
+        try:
+            basis = RelayedLawfulBasis.from_fields(relayed, purposes)
+        except RelayedBasisError as refused:
+            logger.warning(
+                "vCon %s: the tenant's relayed lawful basis is refused (%s), so no "
+                "lawful_basis attachment",
+                vcon.uuid,
+                refused.reason,
+            )
+            return
+        basis.apply(vcon)
 
     def _reference_url(self, recording_url: str) -> str:
         """Telnyx URLs are already per-format and pre-signed.

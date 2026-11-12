@@ -11,7 +11,8 @@ It needs a vcon-mcp checkout with its node dependencies installed, so it runs on
     VCON_MCP_DIR=/path/to/vcon-mcp pytest tests/adapters/telnyx/test_tenant_contract.py
 
 The extractor is run with its default configuration (attachment purpose `tenant`, JSON path
-`id`).
+`id`). The second test runs vcon-mcp's lawful basis reader (`src/utils/lawful-basis.ts`) the
+same way, on the tenant's own basis the adapter builds and on the global one.
 """
 
 import json
@@ -116,6 +117,85 @@ def test_the_store_extractor_reads_the_tenant_from_real_builder_output(tmp_path)
     )
 
     got = extract([vcon for _, vcon, _ in cases], tmp_path)
+
+    assert dict(zip([n for n, _, _ in cases], got, strict=True)) == {
+        n: expected for n, _, expected in cases
+    }
+
+
+BASIS_RUNNER = """\
+const config = await import(process.env.VCON_MCP_DIR + "/src/config/tenant-config.ts");
+const basis = await import(process.env.VCON_MCP_DIR + "/src/utils/lawful-basis.ts");
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+const settings = config.getTenantConfig();
+const vcons = JSON.parse(input);
+process.stdout.write(JSON.stringify(vcons.map((v) => ({
+  tenant: config.extractTenantFromVCon(v, settings),
+  has: basis.hasLawfulBasis(v),
+  warnings: basis.lawfulBasisWarnings(v),
+}))));
+"""
+
+
+def test_the_store_lawful_basis_reader_reads_the_tenant_s_basis(tmp_path):
+    """vcon-mcp's own `lawfulBasisWarnings` and `hasLawfulBasis` (src/utils/lawful-basis.ts),
+    the warnings its create and ingest routes return, on the adapter's real output. The design
+    gives a tenant's basis no expiration and a customer's own entry no proof, so the reader
+    says so; a tenant with no basis reads as missing; the no-tenant path is as before."""
+    from .basis_cases import CHECKED, CUSTOMER, GLOBAL_ENV, basis_body
+
+    label = "lawful_basis attachment"
+    no_expiration = f"{label}: expiration is missing (only legitimate_interests may omit it)"
+    no_proof = f"{label}: proof_mechanisms is empty"
+    missing = (
+        "no lawful_basis attachment: this vCon carries no record of the lawful basis for "
+        "processing"
+    )
+    cases = []
+    for name, basis, tenant, post_args, expected in [
+        ("customer entered", CUSTOMER, TENANT, {}, [no_expiration, no_proof]),
+        ("partner entered, checked", CHECKED, TENANT, {}, [no_expiration]),
+        (
+            "checked, legitimate interests",
+            dict(CHECKED, lawful_basis="legitimate_interests"),
+            TENANT,
+            {},
+            [],
+        ),
+        ("tenant, no basis fields", None, TENANT, {}, [missing]),
+        ("tenant, refused basis", dict(CUSTOMER, consent_record="paper"), TENANT, {}, [missing]),
+        ("no tenant: the global basis", CHECKED, None, {}, [no_proof]),
+        ("untrusted: the global basis", CHECKED, TENANT, {"peer": REMOTE}, [no_proof]),
+    ]:
+        state = tmp_path / name.replace(" ", "-").replace(",", "").replace(":", "")
+        state.mkdir()
+        vcon = post_forward(basis_body("telnyx", basis, tenant), state, **post_args, **GLOBAL_ENV)
+        counted = tenant if not post_args else None
+        cases.append((name, wire(vcon), {"tenant": counted, "has": expected != [missing]}))
+        cases[-1][2]["warnings"] = expected
+
+    root = Path(VCON_MCP_DIR).resolve()
+    assert (root / "src" / "utils" / "lawful-basis.ts").is_file(), f"no reader in {root}"
+    runner = tmp_path / "basis.mts"
+    runner.write_text(BASIS_RUNNER)
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("TENANT_ATTACHMENT_TYPE", "TENANT_JSON_PATH", "CURRENT_TENANT_ID")
+    }
+    env.update(VCON_MCP_DIR=str(root), RLS_ENABLED="true")
+    done = subprocess.run(
+        [str(root / "node_modules" / ".bin" / "tsx"), str(runner)],
+        input=json.dumps([v for _, v, _ in cases]),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    got = json.loads(done.stdout)
 
     assert dict(zip([n for n, _, _ in cases], got, strict=True)) == {
         n: expected for n, _, expected in cases

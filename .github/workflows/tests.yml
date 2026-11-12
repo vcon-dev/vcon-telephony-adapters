@@ -34,8 +34,8 @@ jobs:
           fail_ci_if_error: false
 
   tenant-contract:
-    # Runs vcon-mcp's own tenant extractor on the vCons the Telnyx adapter posts
-    # (tests/adapters/telnyx/test_tenant_contract.py, skipped in the job above).
+    # Runs vcon-mcp's own tenant extractor and lawful basis reader on the vCons the Telnyx
+    # adapter posts (tests/adapters/telnyx/test_tenant_contract.py, skipped in the job above).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,8 @@ jobs:
         with:
           repository: vcon-dev/vcon-mcp
           # Pinned on purpose. Bump this SHA deliberately, after reading what changed in
-          # src/config/tenant-config.ts, and never to a branch name.
+          # src/config/tenant-config.ts and src/utils/lawful-basis.ts, and never to a branch
+          # name.
           ref: b1091435466a0e10f6822bdd9d98ce343bbd9caf
           path: vcon-mcp
 
