@@ -336,6 +336,53 @@ https://your-domain.com/webhook/texml-recording?token=<TELNYX_TEXML_CALLBACK_TOK
 With `VALIDATE_TELNYX_WEBHOOK=true` (the default), the adapter refuses to start unless
 this token is set.
 
+#### Relayed annotations and the tenant attachment
+
+A service that relays this callback can add `Annotation-<name>` form fields. The smart trunk
+receiver does, on the three recording callbacks it forwards here: Telnyx TeXML, a bridge leg,
+and SignalWire `record_call` reshaped into this form. Each field whose name after the prefix is
+1 to 64 letters, digits or underscores becomes an `annotation_<name>` tag. Annotations are
+exactly as trusted as the rest of the form.
+
+One annotation also builds an attachment, because it decides whose data the call is. It is
+honoured only from a request trusted as coming from the relay:
+
+- the request carries `?token=` and it matches `TELNYX_TEXML_CALLBACK_TOKEN`, from any peer; or
+- the request carries no token and the connection comes from loopback (`127.0.0.1` or `::1`).
+
+A request with a wrong token is never trusted, even from loopback. The peer is the client
+address the server reports, never a header the client sends. Under `uvicorn.run`, as `main.py`
+starts it, that address is rewritten from `X-Forwarded-For` only when the connecting peer is
+in `FORWARDED_ALLOW_IPS` (`127.0.0.1` by default). So never set `FORWARDED_ALLOW_IPS=*`, and
+make sure a reverse proxy on the same host as the adapter sets `X-Forwarded-For`; otherwise
+everything it forwards looks local. Where either cannot be guaranteed, set the token and have
+the relay send it. An untrusted request is still processed as before, tag included, and the
+adapter logs one line naming only the reason the field was ignored.
+
+From a trusted relay, when the form carries `Annotation-tenant`, in exactly that case, and its
+value is a tenant id (`t-` and 16 lowercase hex digits), the vCon gains this attachment after
+all the others:
+
+```json
+{"purpose": "tenant", "start": "2026-11-06T18:00:00+00:00", "party": 0, "dialog": 0,
+ "mediatype": "application/json", "encoding": "json", "body": {"id": "t-00000000000000a1"}}
+```
+
+- `start` is the vCon's `created_at`, as on every other attachment the adapter writes.
+- `body` is the JSON object itself (draft-ietf-vcon-vcon-core-04), and a store reads the
+  tenant from `body.id`. A `json.dumps` string under `encoding: "none"` would read as no tenant.
+- The `annotation_tenant` tag is kept as before.
+- With no `Annotation-tenant` field the vCon is exactly what it was before this attachment
+  existed. Any other value adds no attachment and logs a warning naming only the value's type,
+  never the value.
+- If the field appears more than once with different values, no attachment is added and a
+  warning says why. The same value repeated counts once. The tag still takes the last field,
+  as before.
+- Lawful basis is unchanged: the adapter applies the one `LAWFUL_BASIS` it is configured with.
+
+A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
+tenant.
+
 ---
 
 ## Bandwidth Adapter
@@ -773,6 +820,8 @@ Each adapter adds metadata tags to the vCon:
 - `telnyx_recording_id`, `telnyx_call_session_id`
 - `telnyx_call_control_id`, `telnyx_connection_id`
 - `recording_channels`
+- `annotation_<name>`, one per relayed `Annotation-<name>` field on the TeXML callback (see
+  "Relayed annotations and the tenant attachment")
 
 **Bandwidth:**
 - `source`: `bandwidth_adapter`
@@ -808,6 +857,15 @@ webhook (or observer/poller) tests.
 
 `tests/e2e/freeswitch/` is a separate manual harness against a real, locally running
 FreeSWITCH instance; it is excluded from the default `pytest` run (see its own README).
+
+`tests/adapters/telnyx/test_tenant_contract.py` runs vcon-mcp's own tenant extractor,
+unmodified, on the JSON this adapter posts. It is skipped unless `VCON_MCP_DIR` names a
+vcon-mcp checkout with its node dependencies installed. CI runs it in the `tenant-contract`
+job against a pinned vcon-mcp commit. Locally:
+
+```bash
+VCON_MCP_DIR=/path/to/vcon-mcp pytest tests/adapters/telnyx/test_tenant_contract.py
+```
 
 ### Code formatting
 
