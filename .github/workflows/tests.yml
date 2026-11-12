@@ -33,6 +33,46 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
 
+  tenant-contract:
+    # Runs vcon-mcp's own tenant extractor on the vCons the Telnyx adapter posts
+    # (tests/adapters/telnyx/test_tenant_contract.py, skipped in the job above).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out vcon-mcp
+        uses: actions/checkout@v4
+        with:
+          repository: vcon-dev/vcon-mcp
+          # Pinned on purpose. Bump this SHA deliberately, after reading what changed in
+          # src/config/tenant-config.ts, and never to a branch name.
+          ref: b1091435466a0e10f6822bdd9d98ce343bbd9caf
+          path: vcon-mcp
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install vcon-mcp dependencies
+        working-directory: vcon-mcp
+        run: npm ci
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run the contract test
+        env:
+          VCON_MCP_DIR: ${{ github.workspace }}/vcon-mcp
+        run: pytest --no-cov tests/adapters/telnyx/test_tenant_contract.py
+
   lint:
     runs-on: ubuntu-latest
     steps:

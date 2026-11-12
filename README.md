@@ -860,7 +860,8 @@ FreeSWITCH instance; it is excluded from the default `pytest` run (see its own R
 
 `tests/adapters/telnyx/test_tenant_contract.py` runs vcon-mcp's own tenant extractor,
 unmodified, on the JSON this adapter posts. It is skipped unless `VCON_MCP_DIR` names a
-vcon-mcp checkout with its node dependencies installed:
+vcon-mcp checkout with its node dependencies installed. CI runs it in the `tenant-contract`
+job against a pinned vcon-mcp commit. Locally:
 
 ```bash
 VCON_MCP_DIR=/path/to/vcon-mcp pytest tests/adapters/telnyx/test_tenant_contract.py
