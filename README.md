@@ -336,6 +336,36 @@ https://your-domain.com/webhook/texml-recording?token=<TELNYX_TEXML_CALLBACK_TOK
 With `VALIDATE_TELNYX_WEBHOOK=true` (the default), the adapter refuses to start unless
 this token is set.
 
+#### Relayed annotations and the tenant attachment
+
+A service that relays this callback can add `Annotation-<name>` form fields. The smart trunk
+receiver does, on the three recording callbacks it forwards here: Telnyx TeXML, a bridge leg,
+and SignalWire `record_call` reshaped into this form. Each field whose name after the prefix is
+1 to 64 letters, digits or underscores becomes an `annotation_<name>` tag. Annotations are
+exactly as trusted as the rest of the form.
+
+One annotation also builds an attachment. When the form carries `Annotation-tenant`, in exactly
+that case, and its value is a tenant id (`t-` and 16 lowercase hex digits), the vCon gains this
+attachment after all the others:
+
+```json
+{"purpose": "tenant", "start": "2026-11-06T18:00:00+00:00", "party": 0, "dialog": 0,
+ "mediatype": "application/json", "encoding": "json", "body": {"id": "t-00000000000000a1"}}
+```
+
+- `start` is the vCon's `created_at`, as on every other attachment the adapter writes.
+- `body` is the JSON object itself (draft-ietf-vcon-vcon-core-04), and a store reads the
+  tenant from `body.id`. A `json.dumps` string under `encoding: "none"` would read as no tenant.
+- The `annotation_tenant` tag is kept as before.
+- With no `Annotation-tenant` field the vCon is exactly what it was before this attachment
+  existed. Any other value adds no attachment and logs a warning naming only the value's type,
+  never the value. If the field appears more than once, the last one counts, for the tag and
+  the attachment alike; the relaying receiver adds its own last.
+- Lawful basis is unchanged: the adapter applies the one `LAWFUL_BASIS` it is configured with.
+
+A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
+tenant.
+
 ---
 
 ## Bandwidth Adapter
@@ -773,6 +803,8 @@ Each adapter adds metadata tags to the vCon:
 - `telnyx_recording_id`, `telnyx_call_session_id`
 - `telnyx_call_control_id`, `telnyx_connection_id`
 - `recording_channels`
+- `annotation_<name>`, one per relayed `Annotation-<name>` field on the TeXML callback (see
+  "Relayed annotations and the tenant attachment")
 
 **Bandwidth:**
 - `source`: `bandwidth_adapter`
@@ -808,6 +840,14 @@ webhook (or observer/poller) tests.
 
 `tests/e2e/freeswitch/` is a separate manual harness against a real, locally running
 FreeSWITCH instance; it is excluded from the default `pytest` run (see its own README).
+
+`tests/adapters/telnyx/test_tenant_contract.py` runs vcon-mcp's own tenant extractor,
+unmodified, on the JSON this adapter posts. It is skipped unless `VCON_MCP_DIR` names a
+vcon-mcp checkout with its node dependencies installed:
+
+```bash
+VCON_MCP_DIR=/path/to/vcon-mcp pytest tests/adapters/telnyx/test_tenant_contract.py
+```
 
 ### Code formatting
 

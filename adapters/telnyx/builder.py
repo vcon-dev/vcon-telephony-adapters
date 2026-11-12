@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -22,6 +23,29 @@ from .call_session import (
 logger = logging.getLogger(__name__)
 
 TELNYX_API_HOSTS = ("api.telnyx.com",)
+
+# A tenant id: `t-` and 16 lowercase hex, the form the relaying receiver itself checks before
+# it adds `Annotation-tenant`. Anything else is not a tenant.
+TENANT_ID = re.compile(r"t-[0-9a-f]{16}")
+
+
+def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
+    """The attachment that names the tenant a call belongs to.
+
+    Draft-ietf-vcon-vcon-core-04 Attachment Object: `purpose`, not the legacy `type`; `start`,
+    `party` and `dialog` present; and with `encoding: "json"` the body is the JSON value itself,
+    not a `json.dumps` string. A store reads the tenant from `body.id`. A string body under
+    `encoding: "none"` would read back as no tenant at all.
+    """
+    return {
+        "purpose": "tenant",
+        "start": start,
+        "party": 0,
+        "dialog": 0,
+        "mediatype": "application/json",
+        "encoding": "json",
+        "body": {"id": tenant_id},
+    }
 
 
 def _is_telnyx_host(url: str) -> bool:
@@ -238,6 +262,11 @@ class TelnyxRecordingData(BaseRecordingData):
 
         return tags
 
+    @property
+    def tenant_annotation(self) -> Any:
+        """The relayed `Annotation-tenant` value as received, unchecked; None when absent."""
+        return (self._payload.get("annotations") or {}).get("tenant")
+
 
 class TelnyxVconBuilder(BaseVconBuilder):
     """Build vCons from Telnyx recording events."""
@@ -263,7 +292,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
         self.api_key = api_key
 
     def build(self, recording_data: BaseRecordingData):
-        """Build, then attach signalling detail from the lifecycle events."""
+        """Build, then attach signalling detail from the lifecycle events and the call's tenant."""
         vcon = super().build(recording_data)
         if vcon is None:
             return None
@@ -282,6 +311,8 @@ class TelnyxVconBuilder(BaseVconBuilder):
                 }
             )
 
+        self._attach_tenant(vcon, recording_data)
+
         if not recording_data.from_number or not recording_data.to_number:
             logger.warning(
                 "vCon %s has no party identity. `call.recording.saved` omits "
@@ -290,6 +321,28 @@ class TelnyxVconBuilder(BaseVconBuilder):
                 vcon.uuid,
             )
         return vcon
+
+    def _attach_tenant(self, vcon, recording_data: BaseRecordingData) -> None:
+        """Add the tenant attachment when a relaying receiver named the call's tenant.
+
+        The source is the `Annotation-tenant` form field, which also stays an
+        `annotation_tenant` tag as before. With no such field the vCon is left exactly as it
+        was. A value that is not a tenant id adds nothing, and the log names only its type,
+        never the value. `start` is `created_at`, the same as every other attachment here.
+        """
+        value = getattr(recording_data, "tenant_annotation", None)
+        if value is None:
+            return
+        if not (isinstance(value, str) and TENANT_ID.fullmatch(value)):
+            logger.warning(
+                "vCon %s: annotation_tenant is not a tenant id (%s), so no tenant attachment",
+                vcon.uuid,
+                type(value).__name__,
+            )
+            return
+        vcon.vcon_dict.setdefault("attachments", []).append(
+            tenant_attachment(value, vcon.created_at)
+        )
 
     def _reference_url(self, recording_url: str) -> str:
         """Telnyx URLs are already per-format and pre-signed.

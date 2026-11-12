@@ -348,6 +348,8 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         A service that relays this callback can add `Annotation-<name>` fields, for
         example which recording notice it played. Each becomes an `annotation_<name>`
         tag on the vCon. They are exactly as trusted as the rest of this form.
+        `Annotation-tenant` also gives the vCon its tenant attachment when the value is a
+        tenant id (`TelnyxVconBuilder._attach_tenant`).
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
