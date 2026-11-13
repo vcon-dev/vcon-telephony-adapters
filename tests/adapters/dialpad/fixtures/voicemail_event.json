@@ -1,0 +1,22 @@
+{
+  "call_id": 5550003,
+  "event_timestamp": 1760000300000,
+  "state": "voicemail_uploaded",
+  "direction": "inbound",
+  "external_number": "+15555550100",
+  "internal_number": "+15555550199",
+  "target": {"phone": "+15555550199", "type": "user", "id": 7001, "name": "Test Agent"},
+  "contact": {"phone": "+15555550100", "type": "local", "id": 7002, "name": "Test Caller"},
+  "date_started": 1760000250000,
+  "voicemail_link": "https://dialpad.com/v/vm-1",
+  "transcription_text": "Hello, please call me back.",
+  "recording_details": [
+    {
+      "id": "vm-1",
+      "url": "https://dialpad.com/v/vm-1",
+      "duration": 9000,
+      "start_time": 1760000251000,
+      "recording_type": "voicemail"
+    }
+  ]
+}

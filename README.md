@@ -19,6 +19,7 @@ This project provides a unified framework for converting call recordings from va
 - **Pipecat** - Emit vCons from a running Pipecat voice-AI pipeline (in-process observer, no webhook)
 - **ElevenLabs** - Convert ElevenLabs Conversational AI post-call events via webhooks
 - **SignalWire** - Convert SignalWire call recordings by polling the Compatibility API
+- **Dialpad** - Convert Dialpad call recordings, AI transcripts and recaps via webhooks
 
 ## Architecture
 
@@ -38,7 +39,8 @@ vcon-telephony-adapters/
 │   ├── vapi/                # VAPI adapter (webhook)
 │   ├── pipecat/             # Pipecat adapter (in-process observer, no webhook)
 │   ├── elevenlabs/          # ElevenLabs adapter (webhook)
-│   └── signalwire/          # SignalWire adapter (poller)
+│   ├── signalwire/          # SignalWire adapter (poller)
+│   └── dialpad/             # Dialpad adapter (webhook)
 ├── tests/                   # Test suite
 └── main.py                  # CLI entry point
 ```
@@ -110,6 +112,9 @@ vcon-adapter elevenlabs
 
 # SignalWire (poller)
 vcon-adapter signalwire
+
+# Dialpad
+vcon-adapter dialpad
 ```
 
 ---
@@ -698,6 +703,111 @@ silently dropped.
 
 ---
 
+## Dialpad Adapter
+
+Dialpad pushes call events to a webhook as an HS256 JWT signed with the webhook
+secret (plain JSON if no secret was set). The adapter keeps one vCon per call, with
+one uuid, and fetches the recordings, transcript and recap from the Dialpad API. The
+first event that can build it posts it; later events that add something re-post it.
+
+### Configuration
+
+```bash
+# Required
+CONSERVER_URL=https://your-conserver.example.com/api/vcons
+DIALPAD_API_KEY=your_api_key
+DIALPAD_WEBHOOK_SECRET=your_webhook_secret
+
+# Optional
+DIALPAD_API_BASE=https://dialpad.com
+VALIDATE_DIALPAD_SIGNATURE=true
+DIALPAD_UPDATE_ON_LATER_EVENTS=true
+```
+
+### Dialpad Configuration Options
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DIALPAD_API_KEY` | Yes | - | API key. Needs the `recordings_export` scope |
+| `DIALPAD_API_BASE` | No | `https://dialpad.com` | Use `https://sandbox.dialpad.com` for a sandbox |
+| `DIALPAD_WEBHOOK_SECRET` | Yes* | - | Secret set when the webhook was created; verifies the JWT |
+| `VALIDATE_DIALPAD_SIGNATURE` | No | `true` | Enable JWT signature validation |
+| `DIALPAD_WEBHOOK_TOLERANCE_SECONDS` | No | `3600` | Replay-window tolerance; see [Webhook replay window](#webhook-replay-window) |
+| `DIALPAD_UPDATE_ON_LATER_EVENTS` | No | `true` | Re-post the call's vCon (same uuid) when a later event adds a recording, the transcript or a recap component. `false` posts once |
+| `DIALPAD_INCLUDE_TRANSCRIPT` | No | `true` | Attach the AI transcript (needs Dialpad AI) |
+| `DIALPAD_INCLUDE_RECAP` | No | `true` | Attach the AI recap as analysis |
+| `DIALPAD_INCLUDE_ADMIN_RECORDINGS` | No | `false` | Download admin call recordings through their share link |
+
+\* Required when `VALIDATE_DIALPAD_SIGNATURE=true` (the default), unless
+`ALLOW_UNSIGNED_WEBHOOKS=true`. See [Webhook authentication](#webhook-authentication).
+
+### Behavior
+
+- One vCon per `call_id`, with one uuid for its whole life. The external contact is
+  party 0 and the internal user is party 1.
+- The first `recording`, `call_transcription`, `voicemail_uploaded` or `recap_*` event
+  builds and posts it. A later event re-posts it under the same uuid when it adds
+  something: a recording not yet included (Dialpad may send one `recording` event per
+  recording), the AI transcript, or a recap component. Every revision is rebuilt from
+  everything known so far, so it carries all earlier content. Events that add nothing
+  answer `already_processed`. On vcon-server a re-post overwrites the stored vCon and
+  runs the chain again; set `DIALPAD_UPDATE_ON_LATER_EVENTS=false` to post once.
+- Calls without Dialpad AI get their vCon from the `recording` event alone.
+- The tracker file (`STATE_FILE`) holds each call's uuid and what it includes, so
+  updates survive a restart.
+- With `MEDIA_BACKEND=embed` every revision downloads its audio again; with an
+  external publisher the audio is re-published to the same object key.
+- A call with several recordings gets one recording dialog each, plus a recording-set dialog.
+- The AI transcript, call moments and recap are attached as analysis when available.
+- Transfers produce one vCon per leg, tagged with `master_call_id`.
+- A lawful basis attachment is added only when `LAWFUL_BASIS` is configured.
+- Recording URLs are fetched with the API key only over https from `dialpad.com` or
+  `sandbox.dialpad.com`, or from the `DIALPAD_API_BASE` origin.
+- A failed download, API call or conserver post answers `503` so Dialpad can
+  redeliver; any later event for the call retries too, under the same uuid. That
+  includes a transient error fetching the transcript at a `call_transcription` event,
+  or the recap at a `recap_*` event that does not carry its own component; a `404`
+  there just means nothing to add yet. A failed
+  update leaves the earlier revision in place. After 5 consecutive failures the
+  adapter answers `200`, posts whichever new recordings did arrive, and marks the call
+  `abandoned`, which is final: later events for it are ignored.
+- `GET /status/{call_id}` reports the uuid, status (`pending`, `posted` or
+  `abandoned`) and revision count.
+
+### Configuring Dialpad
+
+1. Create a webhook with a secret (`POST /api/v2/webhooks`), then create a call event
+   subscription for the states `recording`, `call_transcription`, `voicemail_uploaded`
+   and `recap_summary` (`POST /api/v2/subscriptions/call`). `recap_outcome`,
+   `recap_purposes` and `recap_action_items` are handled too if you add them with
+   `--states`; without them a `recap_summary` event fetches the rest of the recap. The
+   helper script does both:
+   ```bash
+   python scripts/dialpad_provision.py --hook-url https://your-domain.com/webhook/call-event --dry-run
+   ```
+   Drop `--dry-run` to apply. Credentials come from `DIALPAD_API_KEY` and
+   `DIALPAD_WEBHOOK_SECRET`.
+
+2. Point the webhook at:
+   ```
+   https://your-domain.com/webhook/call-event
+   ```
+
+3. Put the same secret in `DIALPAD_WEBHOOK_SECRET`.
+
+### Unverified details
+
+- JWT claims beyond the event payload (for example `iat` or `exp`) are not documented
+  by Dialpad. The replay window uses the payload's `event_timestamp` (unix
+  milliseconds); an event without one is rejected.
+- Dialpad's retry timing on a failed delivery is not documented.
+- Whether Dialpad sends one `recording` event per finished recording, or one per call,
+  is not documented; both are handled.
+- Whether recordings are mono or stereo is not confirmed, so speaker separation from
+  the audio alone is not assumed.
+
+---
+
 ## Common Configuration
 
 All adapters share these common configuration options:
@@ -715,7 +825,7 @@ All adapters share these common configuration options:
 | `STATE_FILE` | No | `.{adapter}_state.json` | State tracking file |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | See [Webhook authentication](#webhook-authentication) |
-| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | unset | Shared replay-window tolerance override for adapters with a signed timestamp (Telnyx, ElevenLabs); applies only when explicitly set. See [Webhook replay window](#webhook-replay-window) |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | unset | Shared replay-window tolerance override for adapters with a signed timestamp (Telnyx, ElevenLabs, Dialpad); applies only when explicitly set. See [Webhook replay window](#webhook-replay-window) |
 | `MEDIA_BACKEND` | No | `embed` | Where recording audio goes: `embed` (inline base64url), `filesystem`, or `s3` |
 | `MEDIA_BASE_URL` | No | - | Public base URL prepended to re-hosted media (`filesystem`/`s3`) |
 | `MEDIA_URL_SIGNING_KEY` | No | - | `filesystem` only. Appends `?sig=<HMAC-SHA256 of the file name>` to each media URL, for a server that checks it. Unset leaves URLs unchanged |
@@ -742,7 +852,8 @@ Every webhook-based adapter validates its incoming webhooks by default
 (`VALIDATE_*_WEBHOOK=true`): an HMAC secret for Asterisk/FreeSWITCH, Twilio's own
 signature scheme, Telnyx's Ed25519 Call Control signature plus a token on the TeXML
 callback, HTTP Basic Auth for Bandwidth, a shared secret header for VAPI, or an HMAC
-signature for ElevenLabs, depending on the platform. SignalWire is a poller, not a
+signature for ElevenLabs, or an HS256 JWT for Dialpad (`VALIDATE_DIALPAD_SIGNATURE`),
+depending on the platform. SignalWire is a poller, not a
 webhook receiver, so it has no `VALIDATE_*_WEBHOOK` setting; Pipecat has no inbound
 request at all (the integration runs inside your own process).
 
@@ -767,8 +878,9 @@ webhooks. Do not set this in production.
 A valid signature only proves who sent a request, not when: without also checking the
 age of a signed timestamp, a captured, validly-signed webhook stays replayable
 indefinitely. Telnyx (`Telnyx-Timestamp`) and ElevenLabs (the `t=` field of
-`elevenlabs-signature`) both sign a Unix-seconds timestamp alongside the body, so both
-adapters check it, in `core/webhook_security.py`, once signature verification succeeds.
+`elevenlabs-signature`) both sign a Unix-seconds timestamp alongside the body, and
+Dialpad signs `event_timestamp` (Unix milliseconds) inside the JWT, so these adapters
+check it, in `core/webhook_security.py`, once signature verification succeeds.
 The check rejects a timestamp too far in the past *or* too far in the future, and
 rejects outright if the timestamp is missing or non-numeric. It runs after signature
 verification (so only an authenticated timestamp is trusted), returns the same error
@@ -779,17 +891,18 @@ from tampering. It is skipped, along with signature verification itself, wheneve
 Each adapter resolves its tolerance in this order:
 
 1. its own per-platform override, if set (`TELNYX_WEBHOOK_TOLERANCE_SECONDS`,
-   `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS`);
+   `ELEVENLABS_WEBHOOK_TOLERANCE_SECONDS`, `DIALPAD_WEBHOOK_TOLERANCE_SECONDS`);
 2. else the shared `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`, if it is explicitly set in
    the environment;
 3. else that adapter's own provider default: **300s (5 minutes) for Telnyx**, **1800s
    (30 minutes) for ElevenLabs**, matching the tolerance ElevenLabs' own SDK verifier
-   defaults to. The two provider defaults differ deliberately: setting the shared
+   defaults to, and **3600s (1 hour) for Dialpad**, whose retry timing is undocumented.
+   The Telnyx and ElevenLabs provider defaults differ deliberately: setting the shared
    variable is opt-in, so a deployment that never touches either tolerance setting
    keeps the behavior each adapter always had, rather than having ElevenLabs silently
    tightened to Telnyx's window and risking rejection of valid delayed deliveries.
 
-All three settings (the shared one and both overrides) refuse to start the adapter if
+All of these settings (the shared one and each override) refuse to start the adapter if
 set to anything other than a positive integer.
 
 Of the remaining adapters, none currently has a signed timestamp to check: Twilio's
@@ -933,6 +1046,7 @@ pytest tests/adapters/vapi/
 pytest tests/adapters/pipecat/
 pytest tests/adapters/elevenlabs/
 pytest tests/adapters/signalwire/
+pytest tests/adapters/dialpad/
 
 # Run with verbose output
 pytest -v

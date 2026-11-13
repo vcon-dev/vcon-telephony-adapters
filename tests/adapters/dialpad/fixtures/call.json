@@ -1,0 +1,27 @@
+{
+  "call_id": 5550001,
+  "state": "hangup",
+  "recording_details": [
+    {
+      "id": "rec-1",
+      "url": "https://dialpad.com/r/rec-1",
+      "duration": 58000,
+      "start_time": 1760000006000,
+      "recording_type": "callrecording"
+    },
+    {
+      "id": "rec-2",
+      "url": "https://dialpad.com/r/rec-2",
+      "duration": 20000,
+      "start_time": 1760000040000,
+      "recording_type": "callrecording"
+    },
+    {
+      "id": "admin-1",
+      "url": "https://dialpad.com/admin/admin-1",
+      "duration": 58000,
+      "start_time": 1760000006000,
+      "recording_type": "admincallrecording"
+    }
+  ]
+}
