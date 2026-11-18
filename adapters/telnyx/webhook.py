@@ -7,8 +7,9 @@ import logging
 import re
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
+from core.lawful_basis import PURPOSES_HEADER, purposes_sha12
 from core.poster import HttpPoster
 from core.tracker import StateTracker
 from core.webhook_security import is_timestamp_fresh
@@ -27,6 +28,11 @@ TENANT_FIELD = "Annotation-tenant"
 # The tenant's lawful basis, one field per key of its basis record, beside the tenant field.
 # Read only with a trusted tenant, and then in place of the adapter's global basis.
 BASIS_PREFIX = "Annotation-basis_"
+
+# The tenant's add-on choice, comma separated ids, beside the tenant field. Read only with a
+# trusted tenant, and only when `TELNYX_ADDONS_FROM_RELAY` is on, into that tenant
+# attachment's `body.addons`.
+ADDONS_FIELD = "Annotation-addons"
 
 # Peer addresses trusted as the relay without a token. The ASGI client address, never a
 # header: uvicorn rewrites it from X-Forwarded-For only for a peer in FORWARDED_ALLOW_IPS.
@@ -233,8 +239,15 @@ def create_app(config: TelnyxConfig) -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        """Health check endpoint."""
-        return {"status": "healthy", "service": "vcon-telnyx-adapter"}
+        """Health check endpoint.
+
+        `X-Purposes-Sha12` is the fingerprint of the purposes this deployment grants, so a
+        deploy check can compare it with the receiver's and the media host's.
+        """
+        return JSONResponse(
+            {"status": "healthy", "service": "vcon-telnyx-adapter"},
+            headers={PURPOSES_HEADER: purposes_sha12(config.lawful_basis_purposes)},
+        )
 
     @app.post("/webhook/recording", response_class=PlainTextResponse)
     async def recording_event(
@@ -285,10 +298,12 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         relayed_tenants: list[str] | None = None,
         relay_trusted: bool = False,
         relayed_basis: dict[str, list] | None = None,
+        relayed_addons: list | None = None,
     ) -> str:
         """Shared by the Call Control JSON webhook and the TeXML form callback.
 
-        Only the TeXML route passes `relayed_tenants`, `relay_trusted` and `relayed_basis`.
+        Only the TeXML route passes `relayed_tenants`, `relay_trusted`, `relayed_basis` and
+        `relayed_addons`.
         """
         # Check event type
         data = event_data.get("data", event_data)
@@ -320,6 +335,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             relayed_tenants=relayed_tenants or (),
             relay_trusted=relay_trusted,
             relayed_basis=relayed_basis,
+            relayed_addons=relayed_addons or (),
         )
         recording_id = recording_data.recording_id
 
@@ -393,6 +409,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         (`TelnyxVconBuilder._attach_tenant`). With such a tenant, the `Annotation-basis_<key>`
         fields beside it are that tenant's lawful basis, used in place of the global one
         (`TelnyxVconBuilder._apply_lawful_basis`); from an untrusted request they are ignored.
+        `Annotation-addons` is the tenant's add-on choice. When `TELNYX_ADDONS_FROM_RELAY` is on,
+        it goes into the tenant attachment's `body.addons` under the same trust; it never
+        becomes a tag.
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
@@ -449,7 +468,15 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         for name, value in form.multi_items():
             if name.startswith(BASIS_PREFIX):
                 relayed_basis.setdefault(name[len(BASIS_PREFIX) :], []).append(value)
+        # Unconverted, as the basis values are: a value that is not text is refused, not str()'d.
+        relayed_addons = form.getlist(ADDONS_FIELD)
         distrust = relay_distrust(request)
+        if relayed_addons and not config.addons_from_relay:
+            logger.info("%s ignored: TELNYX_ADDONS_FROM_RELAY is off", ADDONS_FIELD)
+            relayed_addons = []
+        elif relayed_addons and distrust:
+            logger.warning("%s ignored: %s", ADDONS_FIELD, distrust)
+            relayed_addons = []
         if relayed_tenants and distrust:
             logger.warning("%s ignored: %s", TENANT_FIELD, distrust)
         if relayed_basis and distrust:
@@ -460,6 +487,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             relayed_tenants=relayed_tenants,
             relay_trusted=distrust is None,
             relayed_basis=relayed_basis,
+            relayed_addons=relayed_addons,
         )
 
     @app.get("/status/{recording_id}")

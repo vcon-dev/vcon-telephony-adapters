@@ -32,15 +32,29 @@ TENANT_ID = re.compile(r"t-[0-9a-f]{16}")
 # The annotation names of the tenant's basis fields (`Annotation-basis_<key>`), the whole space.
 BASIS_ANNOTATION = "basis_"
 
+# The annotation that carries the tenant's add-on choice (`Annotation-addons`), and the add-on
+# ids this adapter knows. The receiver's `ADDONS` is the same list; an id outside it is dropped.
+ADDONS_ANNOTATION = "addons"
+KNOWN_ADDONS = ("conv-triage", "voice-screen")
+_ADDON_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
-def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
+
+def tenant_attachment(
+    tenant_id: str, start: str, addons: Sequence[str] | None = None
+) -> dict[str, Any]:
     """The attachment that names the tenant a call belongs to.
 
     Draft-ietf-vcon-vcon-core-04 Attachment Object: `purpose`, not the legacy `type`; `start`,
     `party` and `dialog` present; and with `encoding: "json"` the body is the JSON value itself,
     not a `json.dumps` string. A store reads the tenant from `body.id`. A string body under
     `encoding: "none"` would read back as no tenant at all.
+
+    `addons` is the tenant's add-on choice, present only when a trusted relay sent one (an empty
+    list means it sent one and nothing is on). `None` leaves the body as `{"id": ...}`.
     """
+    body: dict[str, Any] = {"id": tenant_id}
+    if addons is not None:
+        body["addons"] = list(addons)
     return {
         "purpose": "tenant",
         "start": start,
@@ -48,7 +62,7 @@ def tenant_attachment(tenant_id: str, start: str) -> dict[str, Any]:
         "dialog": 0,
         "mediatype": "application/json",
         "encoding": "json",
-        "body": {"id": tenant_id},
+        "body": body,
     }
 
 
@@ -73,6 +87,32 @@ def relayed_tenant(recording_data: Any) -> tuple[str | None, str | None]:
             "so no tenant attachment"
         )
     return value, None
+
+
+def relayed_addons(recording_data: Any) -> tuple[list[str] | None, str | None]:
+    """The add-ons a trusted relay named: (ids, None), or (None, None) when it sent none.
+
+    Only `Annotation-addons` from a request the route trusted as relayed counts, and the
+    caller attaches it only beside a tenant (`relayed_tenant`). The value is comma separated
+    ids: sorted and unique, with an id this adapter does not know dropped. A value that does
+    not parse (not text, an empty or malformed id, or two different values on the form) gives
+    `[]` and a `problem` naming only the reason, never the value. An empty value is `[]` with
+    nothing to say.
+    """
+    values = getattr(recording_data, "relayed_addons", ())
+    if not values or getattr(recording_data, "relay_trusted", False) is not True:
+        return None, None
+    if len({repr(v) for v in values}) > 1:
+        return [], "annotation_addons names more than one list, so no add-ons"
+    value = values[-1]
+    if not isinstance(value, str):
+        return [], f"annotation_addons is not text ({type(value).__name__}), so no add-ons"
+    if value == "":
+        return [], None
+    ids = value.split(",")
+    if not all(_ADDON_ID.fullmatch(i) for i in ids):
+        return [], "annotation_addons does not parse as a comma separated list, so no add-ons"
+    return sorted({i for i in ids if i in KNOWN_ADDONS}), None
 
 
 def _is_telnyx_host(url: str) -> bool:
@@ -133,6 +173,7 @@ class TelnyxRecordingData(BaseRecordingData):
         relayed_tenants: Sequence[Any] = (),
         relay_trusted: bool = False,
         relayed_basis: dict[str, Sequence[Any]] | None = None,
+        relayed_addons: Sequence[Any] = (),
     ):
         """Initialize from Telnyx webhook event data.
 
@@ -145,6 +186,8 @@ class TelnyxRecordingData(BaseRecordingData):
                 relay. Arguments, not event fields, so no request body can set them.
             relayed_basis: every `Annotation-basis_<key>` value on a relayed form, by key,
                 in order. Read only beside a trusted tenant.
+            relayed_addons: every `Annotation-addons` value on a relayed form, in order. Read
+                only from a trusted relay and only beside a trusted tenant.
 
         The recording event alone cannot name the parties. Either supplement
         supplies `from`/`to`; without one, the vCon is anonymous and the
@@ -155,6 +198,7 @@ class TelnyxRecordingData(BaseRecordingData):
         self.relayed_tenants = tuple(relayed_tenants)
         self.relay_trusted = relay_trusted is True
         self.relayed_basis = {k: tuple(v) for k, v in (relayed_basis or {}).items()}
+        self.relayed_addons = tuple(relayed_addons)
         # Handle nested structure
         if "data" in event_data and "payload" in event_data["data"]:
             self._payload = event_data["data"]["payload"]
@@ -297,10 +341,14 @@ class TelnyxRecordingData(BaseRecordingData):
 
         # With a tenant that counts, the basis fields become the tenant's lawful_basis attachment
         # (or are refused), so they are not also kept as tags: the justification and names would
-        # be in the vCon twice. Without one, every annotation stays a tag, as before.
+        # be in the vCon twice. Without one, every annotation stays a tag, as before. The add-on
+        # list is never a tag, with a tenant or without: it is read from the tenant attachment
+        # alone, and a tag is a copy anyone could have written.
         tenant, _ = relayed_tenant(self)
         for name, value in (self._payload.get("annotations") or {}).items():
             if tenant is not None and name.startswith(BASIS_ANNOTATION):
+                continue
+            if name.lower() == ADDONS_ANNOTATION:
                 continue
             tags[f"annotation_{name}"] = value
 
@@ -373,14 +421,21 @@ class TelnyxVconBuilder(BaseVconBuilder):
         tenant id. Logs name only the reason or the value's type, never the value. With no
         such field the vCon is left exactly as it was. `start` is `created_at`, the same as
         every other attachment here.
+
+        The body also carries `addons` when the same trusted relay sent `Annotation-addons`
+        (`relayed_addons`), and only then: with no field the body is `{"id": ...}` as before.
+        With no tenant there is no attachment, so an add-on list never travels without one.
         """
         tenant, problem = relayed_tenant(recording_data)
         if problem:
             logger.warning("vCon %s: %s", vcon.uuid, problem)
         if tenant is None:
             return
+        addons, addons_problem = relayed_addons(recording_data)
+        if addons_problem:
+            logger.warning("vCon %s: %s", vcon.uuid, addons_problem)
         vcon.vcon_dict.setdefault("attachments", []).append(
-            tenant_attachment(tenant, vcon.created_at)
+            tenant_attachment(tenant, vcon.created_at, addons)
         )
 
     def _apply_lawful_basis(self, vcon, recording_data: BaseRecordingData) -> None:
