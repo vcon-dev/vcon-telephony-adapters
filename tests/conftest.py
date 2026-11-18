@@ -27,6 +27,17 @@ VconBuilder = TwilioVconBuilder
 # =============================================================================
 
 
+@pytest.fixture(autouse=True)
+def _own_working_directory(tmp_path, monkeypatch):
+    """Every test runs in its own empty directory.
+
+    The adapters keep their processed-recordings state in a file named relative to the working
+    directory. Tests that reuse a recording id then saw the previous run's answer, so a run
+    whose builds had failed left a repo-root file that failed every later run.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def clean_env(monkeypatch):
     """Clean environment of all adapter-related variables."""
