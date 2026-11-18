@@ -121,6 +121,17 @@ def test_the_store_extractor_reads_the_tenant_from_real_builder_output(tmp_path)
     )
     cases.append(("telnyx/valid with add-ons, untrusted peer", wire(vcon), None))
 
+    # The screening outcome rides as an analysis entry, and the extractor still reads `body.id`.
+    state = tmp_path / "screen-result"
+    state.mkdir()
+    result = json.dumps({"status": "missing"})
+    pairs = [*FORMS["telnyx"], (TENANT_FIELD, TENANT), ("Annotation-screen_result", result)]
+    vcon = post_forward(
+        urllib.parse.urlencode(pairs).encode(), state, TELNYX_SCREEN_RESULT_FROM_RELAY="1"
+    )
+    assert [a["type"] for a in vcon.to_dict()["analysis"]] == ["voice-screen"]
+    cases.append(("telnyx/valid, voice-screen entry", wire(vcon), TENANT))
+
     # Controls, so a reader that returned the same answer for everything would fail: the
     # string-body form the design warns reads as no tenant, and a bare object reads.
     cases.append(

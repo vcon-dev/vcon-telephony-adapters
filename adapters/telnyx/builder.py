@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import re
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -37,6 +38,37 @@ BASIS_ANNOTATION = "basis_"
 ADDONS_ANNOTATION = "addons"
 KNOWN_ADDONS = ("conv-triage", "voice-screen")
 _ADDON_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+# The annotation that carries the call's screening outcome (`Annotation-screen_result`): one
+# compact JSON object of at most `SCREEN_RESULT_LIMIT` bytes, the receiver's own cap. It is read
+# into a `voice-screen` analysis entry (`relayed_screen_result`) and is never a tag.
+SCREEN_RESULT_ANNOTATION = "screen_result"
+SCREEN_RESULT_LIMIT = 1024
+SCREEN_RESULT_KEYS = (
+    "status",
+    "mode",
+    "threshold",
+    "windows",
+    "frames",
+    "synthetic_frames",
+    "max_confidence",
+    "decided_at",
+)
+SCREEN_ACTION_KEYS = ("action", "action_result", "acted_at", "telnyx_status")
+_SCREEN_STATUSES = ("clean", "acted", "error", "refused")
+_SCREEN_MODES = ("listen", "prompt_first")
+_SCREEN_ACTIONS = ("bot", "announce", "stop")
+_SCREEN_ACTION_RESULTS = ("accepted", "gone", "refused", "bot_unavailable")
+_INSTANT = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?"
+    r"(?:Z|[+-][0-9]{2}:[0-9]{2})"
+)
+SCREEN_ANALYSIS = {
+    "type": "voice-screen",
+    "vendor": "modulate",
+    "product": "velma-2-synthetic-voice-detection-streaming",
+    "schema": "voice-screen-result-v1",
+}
 
 
 def tenant_attachment(
@@ -115,6 +147,121 @@ def relayed_addons(recording_data: Any) -> tuple[list[str] | None, str | None]:
     return sorted({i for i in ids if i in KNOWN_ADDONS}), None
 
 
+def _one_of(value: Any, options: tuple[str, ...]) -> bool:
+    return isinstance(value, str) and value in options
+
+
+def _whole(value: Any, low: int, high: int) -> bool:
+    return type(value) is int and low <= value <= high
+
+
+def _real(value: Any, low: float, high: float) -> bool:
+    return type(value) in (int, float) and math.isfinite(value) and low <= value <= high
+
+
+def _instant(value: Any) -> bool:
+    """An ISO 8601 time with a zone, in the one shape the receiver writes."""
+    if not isinstance(value, str) or not _INSTANT.fullmatch(value):
+        return False
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _nullable(check, value: Any, *args: Any) -> bool:
+    return value is None or check(value, *args)
+
+
+def _object_without_repeats(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("repeated key")
+    return dict(pairs)
+
+
+def _refuse_constant(name: str) -> Any:
+    raise ValueError("not a JSON number")
+
+
+def screen_result_body(value: Any) -> dict[str, Any] | None:
+    """The `voice-screen` analysis body for one `Annotation-screen_result` value, or None.
+
+    The value is the receiver's compact JSON: text, at most `SCREEN_RESULT_LIMIT` bytes, one
+    object with no repeated key and no NaN or Infinity, holding exactly the contract's keys.
+    Those are the eight result keys and the four action keys, or `{"status": "missing"}` alone
+    or with the four action keys. Every value is checked for its type and range: the status,
+    mode, action and action result against their lists, counts as whole numbers in range, the
+    threshold and confidence from 0 to 1, times as ISO 8601 with a zone, the carrier status as
+    a whole HTTP status or null. The body returned is rebuilt from those checked values, in the
+    contract's order, so no text from the request is copied: an enum matched a fixed string and
+    a time matched a fixed shape. Anything else gives None and writes nothing.
+    """
+    if not isinstance(value, str) or len(value.encode("utf-8", "replace")) > SCREEN_RESULT_LIMIT:
+        return None
+    try:
+        doc = json.loads(
+            value, object_pairs_hook=_object_without_repeats, parse_constant=_refuse_constant
+        )
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    missing = doc.get("status") == "missing"
+    full = {*SCREEN_RESULT_KEYS, *SCREEN_ACTION_KEYS}
+    with_action = {"status", *SCREEN_ACTION_KEYS}
+    if set(doc) not in ((full,) if not missing else ({"status"}, with_action)):
+        return None
+    action_keys = [k for k in SCREEN_ACTION_KEYS if k in doc]
+    checks = {
+        "action": lambda v: _nullable(_one_of, v, _SCREEN_ACTIONS),
+        "action_result": lambda v: _nullable(_one_of, v, _SCREEN_ACTION_RESULTS),
+        "acted_at": lambda v: _nullable(_instant, v),
+        "telnyx_status": lambda v: _nullable(_whole, v, 100, 599),
+    }
+    if not all(checks[k](doc[k]) for k in action_keys):
+        return None
+    if missing:
+        return {k: doc[k] for k in ("status", *action_keys)}
+    result_checks = {
+        "status": lambda v: _one_of(v, _SCREEN_STATUSES),
+        "mode": lambda v: _one_of(v, _SCREEN_MODES),
+        "threshold": lambda v: _real(v, 0, 1),
+        "windows": lambda v: _whole(v, 1, 4),
+        "frames": lambda v: _whole(v, 0, 3600),
+        "synthetic_frames": lambda v: _whole(v, 0, 3600),
+        "max_confidence": lambda v: _nullable(_real, v, 0, 1),
+        "decided_at": lambda v: _nullable(_instant, v),
+    }
+    if not all(result_checks[k](doc[k]) for k in SCREEN_RESULT_KEYS):
+        return None
+    return {k: doc[k] for k in (*SCREEN_RESULT_KEYS, *SCREEN_ACTION_KEYS)}
+
+
+def relayed_screen_result(recording_data: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """The screening outcome a trusted relay sent: (body, None), or (None, reason).
+
+    `(None, None)` means nothing to do: no field, or a request the route did not trust. The
+    caller uses it only beside a trusted tenant. The same value twice counts once; two
+    different values, a value that is not text, and a value `screen_result_body` refuses give
+    no body and a reason that names neither the value nor any part of it.
+    """
+    values = getattr(recording_data, "relayed_screen_results", ())
+    if not values or getattr(recording_data, "relay_trusted", False) is not True:
+        return None, None
+    if len({repr(v) for v in values}) > 1:
+        return None, "annotation_screen_result names more than one value, so it is dropped"
+    value = values[-1]
+    if not isinstance(value, str):
+        return None, (
+            f"annotation_screen_result is not text ({type(value).__name__}), so it is dropped"
+        )
+    body = screen_result_body(value)
+    if body is None:
+        return None, "annotation_screen_result is not the screening contract, so it is dropped"
+    return body, None
+
+
 def _is_telnyx_host(url: str) -> bool:
     """True only for Telnyx's own API host.
 
@@ -174,6 +321,7 @@ class TelnyxRecordingData(BaseRecordingData):
         relay_trusted: bool = False,
         relayed_basis: dict[str, Sequence[Any]] | None = None,
         relayed_addons: Sequence[Any] = (),
+        relayed_screen_results: Sequence[Any] = (),
     ):
         """Initialize from Telnyx webhook event data.
 
@@ -188,6 +336,8 @@ class TelnyxRecordingData(BaseRecordingData):
                 in order. Read only beside a trusted tenant.
             relayed_addons: every `Annotation-addons` value on a relayed form, in order. Read
                 only from a trusted relay and only beside a trusted tenant.
+            relayed_screen_results: every `Annotation-screen_result` value on a relayed form, in
+                order. Read only from a trusted relay and only beside a trusted tenant.
 
         The recording event alone cannot name the parties. Either supplement
         supplies `from`/`to`; without one, the vCon is anonymous and the
@@ -199,6 +349,7 @@ class TelnyxRecordingData(BaseRecordingData):
         self.relay_trusted = relay_trusted is True
         self.relayed_basis = {k: tuple(v) for k, v in (relayed_basis or {}).items()}
         self.relayed_addons = tuple(relayed_addons)
+        self.relayed_screen_results = tuple(relayed_screen_results)
         # Handle nested structure
         if "data" in event_data and "payload" in event_data["data"]:
             self._payload = event_data["data"]["payload"]
@@ -348,7 +499,7 @@ class TelnyxRecordingData(BaseRecordingData):
         for name, value in (self._payload.get("annotations") or {}).items():
             if tenant is not None and name.startswith(BASIS_ANNOTATION):
                 continue
-            if name.lower() == ADDONS_ANNOTATION:
+            if name.lower() in (ADDONS_ANNOTATION, SCREEN_RESULT_ANNOTATION):
                 continue
             tags[f"annotation_{name}"] = value
 
@@ -402,6 +553,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             )
 
         self._attach_tenant(vcon, recording_data)
+        self._attach_screen_result(vcon, recording_data)
 
         if not recording_data.from_number or not recording_data.to_number:
             logger.warning(
@@ -437,6 +589,32 @@ class TelnyxVconBuilder(BaseVconBuilder):
         vcon.vcon_dict.setdefault("attachments", []).append(
             tenant_attachment(tenant, vcon.created_at, addons)
         )
+
+    def _attach_screen_result(self, vcon, recording_data: BaseRecordingData) -> None:
+        """Add the `voice-screen` analysis entry when a trusted relay sent a valid outcome.
+
+        The source is the `Annotation-screen_result` form field, which is never a tag. It counts
+        only from a request the route trusted as relayed, with the setting on (the route
+        drops it otherwise), beside a tenant that counts (`relayed_tenant`), and only when
+        `screen_result_body` accepts it. One entry, on dialog 0, the body rebuilt from checked
+        values. Anything else writes nothing, and the log names only the reason. With no such
+        field the vCon is left exactly as it was.
+        """
+        if not getattr(recording_data, "relayed_screen_results", ()):
+            return
+        tenant, _ = relayed_tenant(recording_data)
+        body, problem = relayed_screen_result(recording_data)
+        if problem:
+            logger.warning("vCon %s: %s", vcon.uuid, problem)
+        if body is None:
+            return
+        if tenant is None:
+            logger.warning(
+                "vCon %s: annotation_screen_result came with no usable tenant, so it is dropped",
+                vcon.uuid,
+            )
+            return
+        vcon.add_analysis(dialog=0, encoding="json", body=body, **SCREEN_ANALYSIS)
 
     def _apply_lawful_basis(self, vcon, recording_data: BaseRecordingData) -> None:
         """The call's tenant's own basis when a trusted relay names the tenant, else as before.
