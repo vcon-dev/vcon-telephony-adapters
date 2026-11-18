@@ -403,13 +403,16 @@ all the others:
   `encoding` `json`, and a `body` of `status`, `mode`, `threshold`, `windows`, `frames`,
   `synthetic_frames`, `max_confidence`, `decided_at`, `action`, `action_result`, `acted_at` and
   `telnyx_status`. A call whose result never reached the relay sends `{"status": "missing"}`, alone or with the
-  four action keys, and that is written as sent. The value is one compact JSON object of at most
-  1024 bytes with exactly those keys, each checked for its type and range (statuses, modes and
-  actions against fixed lists; counts as whole numbers in range; the threshold and confidence
-  from 0 to 1; times as ISO 8601 with a zone). Anything else is dropped with one warning that
+  four action keys, and that is written as sent. The value is one JSON object of at most 1024
+  bytes (the receiver sends it compact; spacing and key order are not checked) with exactly
+  those keys, each checked for its type and range (statuses, modes and actions against fixed
+  lists; counts as whole numbers in range; the threshold and confidence from 0 to 1; times as
+  ISO 8601 with a zone). `acted_at` and `telnyx_status` must be set exactly when
+  `action_result` is `accepted` or `gone`, and null otherwise. Anything else is dropped with one warning that
   names only the reason, and nothing is written. The body is rebuilt from the checked values,
   so no text from the request is copied. The field is never an `annotation_screen_result` tag,
-  in any letter case, with the setting on or off. From an untrusted request, with no tenant
+  in any letter case, with the setting on or off, and no other `Annotation-screen_*` name is
+  kept as a tag either (the receiver reserves that prefix). From an untrusted request, with no tenant
   that counts, or with the setting off, it is dropped and the vCon is as it was. Turn the
   setting on only after the receiver that forwards to this adapter strips an
   `Annotation-screen_result` field that a carrier sent, and a reader should take the outcome

@@ -40,9 +40,12 @@ KNOWN_ADDONS = ("conv-triage", "voice-screen")
 _ADDON_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 # The annotation that carries the call's screening outcome (`Annotation-screen_result`): one
-# compact JSON object of at most `SCREEN_RESULT_LIMIT` bytes, the receiver's own cap. It is read
+# JSON object of at most `SCREEN_RESULT_LIMIT` bytes, the receiver's own cap. It is read
 # into a `voice-screen` analysis entry (`relayed_screen_result`) and is never a tag.
 SCREEN_RESULT_ANNOTATION = "screen_result"
+# The receiver reserves every `Annotation-screen_` name and strips it from a carrier's body, so
+# none of them is kept as a tag here: a look-alike name would hold whatever a sender wrote.
+SCREEN_ANNOTATION_PREFIX = "screen_"
 SCREEN_RESULT_LIMIT = 1024
 SCREEN_RESULT_KEYS = (
     "status",
@@ -184,21 +187,34 @@ def _refuse_constant(name: str) -> Any:
     raise ValueError("not a JSON number")
 
 
+def _acted_agree(doc: dict[str, Any]) -> bool:
+    """`acted_at` and `telnyx_status` are non-null exactly when the receiver acted on the call."""
+    acted = doc["action_result"] in ("accepted", "gone")
+    return (doc["acted_at"] is not None) == acted and (doc["telnyx_status"] is not None) == acted
+
+
 def screen_result_body(value: Any) -> dict[str, Any] | None:
     """The `voice-screen` analysis body for one `Annotation-screen_result` value, or None.
 
-    The value is the receiver's compact JSON: text, at most `SCREEN_RESULT_LIMIT` bytes, one
-    object with no repeated key and no NaN or Infinity, holding exactly the contract's keys.
+    The value is JSON text (the receiver sends it compact, but spacing and key order are not
+    checked) of at most `SCREEN_RESULT_LIMIT` bytes: one object with no repeated key and no NaN
+    or Infinity, holding exactly the contract's keys.
     Those are the eight result keys and the four action keys, or `{"status": "missing"}` alone
     or with the four action keys. Every value is checked for its type and range: the status,
     mode, action and action result against their lists, counts as whole numbers in range, the
     threshold and confidence from 0 to 1, times as ISO 8601 with a zone, the carrier status as
-    a whole HTTP status or null. The body returned is rebuilt from those checked values, in the
+    a whole HTTP status or null. The action fields must agree: `acted_at` and `telnyx_status` are
+    set exactly when `action_result` is `accepted` or `gone` (the receiver redirected the call, or
+    found it already ended), and null otherwise. The body returned is rebuilt from those checked values, in the
     contract's order, so no text from the request is copied: an enum matched a fixed string and
     a time matched a fixed shape. Anything else gives None and writes nothing.
     """
     if not isinstance(value, str) or len(value.encode("utf-8", "replace")) > SCREEN_RESULT_LIMIT:
         return None
+    # `parse_constant` here and `isfinite` in `_real` are deliberately redundant with the range
+    # checks (a NaN or an infinity is out of range anyway): they stay so that widening a range
+    # cannot let one through. The same goes for the byte count: no value that passes the checks
+    # holds a non-ASCII character, so bytes and characters agree.
     try:
         doc = json.loads(
             value, object_pairs_hook=_object_without_repeats, parse_constant=_refuse_constant
@@ -220,6 +236,8 @@ def screen_result_body(value: Any) -> dict[str, Any] | None:
         "telnyx_status": lambda v: _nullable(_whole, v, 100, 599),
     }
     if not all(checks[k](doc[k]) for k in action_keys):
+        return None
+    if action_keys and not _acted_agree(doc):
         return None
     if missing:
         return {k: doc[k] for k in ("status", *action_keys)}
@@ -499,7 +517,9 @@ class TelnyxRecordingData(BaseRecordingData):
         for name, value in (self._payload.get("annotations") or {}).items():
             if tenant is not None and name.startswith(BASIS_ANNOTATION):
                 continue
-            if name.lower() in (ADDONS_ANNOTATION, SCREEN_RESULT_ANNOTATION):
+            if name.lower() == ADDONS_ANNOTATION or name.lower().startswith(
+                SCREEN_ANNOTATION_PREFIX
+            ):
                 continue
             tags[f"annotation_{name}"] = value
 

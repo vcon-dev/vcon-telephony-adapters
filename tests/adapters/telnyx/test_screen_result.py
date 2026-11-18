@@ -404,6 +404,35 @@ MALFORMED = {
         "acted_at": None,
         "telnyx_status": None,
     },
+    "unknown action result, no times": _with(action_result="ok", acted_at=None, telnyx_status=None),
+    "action result list, no times": _with(
+        action_result=["refused"], acted_at=None, telnyx_status=None
+    ),
+    "accepted with no acted_at": _with(acted_at=None),
+    "accepted with no carrier status": _with(telnyx_status=None),
+    "accepted with neither": _with(acted_at=None, telnyx_status=None),
+    "gone with no acted_at": _with(action_result="gone", acted_at=None),
+    "refused with acted_at": _with(action_result="refused", telnyx_status=None),
+    "refused with a carrier status": _with(
+        action_result="refused", acted_at=None, telnyx_status=200
+    ),
+    "bot_unavailable with both": _with(action_result="bot_unavailable"),
+    "no action result but acted_at": _with(action_result=None, telnyx_status=None),
+    "no action result but a carrier status": _with(action_result=None, acted_at=None),
+    "missing, refused, with a carrier status": {
+        "status": "missing",
+        "action": "stop",
+        "action_result": "refused",
+        "acted_at": None,
+        "telnyx_status": 200,
+    },
+    "missing, accepted, with no times": {
+        "status": "missing",
+        "action": "stop",
+        "action_result": "accepted",
+        "acted_at": None,
+        "telnyx_status": None,
+    },
     "missing with a note": {"status": "missing", "note": "x"},
     "nested": {"status": {"value": "acted"}},
     "too large": _compact({**ACTED, "decided_at": "x" * SCREEN_RESULT_LIMIT}),
@@ -427,6 +456,12 @@ def test_a_valid_object_over_the_limit_is_dropped(tmp_path):
     assert json.loads(padded) == ACTED and len(padded) > SCREEN_RESULT_LIMIT
     assert screen_result_body(padded) is None
     assert _analysis(_post(tmp_path, "telnyx", TENANT, padded)) == []
+
+
+def test_spacing_and_key_order_are_not_checked():
+    """The README says so: the receiver sends compact JSON, but the body is rebuilt."""
+    pretty = json.dumps(dict(reversed(list(ACTED.items()))), indent=2)
+    assert screen_result_body(pretty) == ACTED
 
 
 def test_a_value_exactly_at_the_limit_still_parses():
@@ -487,7 +522,15 @@ def test_the_entry_is_rebuilt_from_checked_values_only():
 @pytest.mark.parametrize("action", ["bot", "announce", "stop", None])
 @pytest.mark.parametrize("action_result", ["accepted", "gone", "refused", "bot_unavailable", None])
 def test_every_listed_value_is_accepted(status, mode, action, action_result):
-    doc = _with(status=status, mode=mode, action=action, action_result=action_result)
+    acted = action_result in ("accepted", "gone")
+    doc = _with(
+        status=status,
+        mode=mode,
+        action=action,
+        action_result=action_result,
+        acted_at=ACTED["acted_at"] if acted else None,
+        telnyx_status=(200 if action_result == "accepted" else 404) if acted else None,
+    )
     assert screen_result_body(_compact(doc)) == doc
 
 
@@ -538,7 +581,15 @@ def test_with_no_annotation_and_no_tenant_the_output_is_the_golden(tmp_path, car
 
 @pytest.mark.parametrize(
     "name",
-    [FIELD, "Annotation-Screen_Result", "Annotation-SCREEN_RESULT", "Annotation-screen_result"],
+    [
+        FIELD,
+        "Annotation-Screen_Result",
+        "Annotation-SCREEN_RESULT",
+        "Annotation-screen_result2",
+        "Annotation-screen_resultx",
+        "Annotation-screen_",
+        "Annotation-SCREEN_other",
+    ],
 )
 @pytest.mark.parametrize("env", [ON, {"TELNYX_SCREEN_RESULT_FROM_RELAY": None}])
 @pytest.mark.parametrize("peer", [("127.0.0.1", 40000), REMOTE])
@@ -568,3 +619,40 @@ def test_only_the_exact_field_name_writes_an_entry(tmp_path):
 def test_other_annotations_are_still_tags(tmp_path):
     vcon = _post(tmp_path, "telnyx", TENANT, ACTED)
     assert _tags(vcon)["annotation_notice"] == "notice-v1.wav"
+
+
+def test_a_name_that_only_resembles_the_prefix_is_still_a_tag(tmp_path):
+    body = urllib.parse.urlencode(
+        [*FORMS["telnyx"], ("Annotation-screening", "a"), ("Annotation-screen", "b")]
+    )
+    vcon = post_forward(body.encode(), tmp_path, **ON)
+    assert _tags(vcon)["annotation_screening"] == "a"
+    assert _tags(vcon)["annotation_screen"] == "b"
+
+
+def test_look_alike_names_on_the_json_route_are_no_tags_either(tmp_path):
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from adapters.telnyx.config import TelnyxConfig
+    from adapters.telnyx.webhook import create_app
+
+    from .tenant_cases import LOOPBACK, adapter_env
+
+    event = _event()
+    event["data"]["payload"]["annotations"] = {
+        "screen_resultx": _compact(ACTED),
+        "Screen_Other": "x",
+        "notice": "kept",
+    }
+    with (
+        patch.dict("os.environ", adapter_env(tmp_path, **ON), clear=True),
+        patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
+    ):
+        poster_cls.return_value.post.return_value = True
+        client = TestClient(create_app(TelnyxConfig()), client=LOOPBACK)
+        assert client.post("/webhook/recording", json=event).text == "OK"
+    (vcon,), _ = poster_cls.return_value.post.call_args
+    assert not [k for k in _tags(vcon) if "screen" in k.lower()]
+    assert _tags(vcon)["annotation_notice"] == "kept"
