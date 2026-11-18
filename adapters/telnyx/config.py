@@ -56,6 +56,16 @@ class TelnyxConfig(BaseConfig):
         # https://<host>/webhook/texml-recording?token=<this value>.
         self.texml_callback_token = os.getenv("TELNYX_TEXML_CALLBACK_TOKEN")
 
+        # Whether to read `Annotation-addons` from a trusted relay into the tenant attachment.
+        # Off by default: the relaying receiver must strip a copy a carrier sends before this
+        # is turned on, or a carrier could choose a tenant's add-ons. While off, the field is
+        # dropped as it is from an untrusted request.
+        self.addons_from_relay = os.getenv("TELNYX_ADDONS_FROM_RELAY", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
         if self.validate_webhook and not self.telnyx_public_key:
             if self.allow_unsigned_webhooks:
                 logger.warning(

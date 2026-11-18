@@ -30,7 +30,8 @@ TENANT_FIELD = "Annotation-tenant"
 BASIS_PREFIX = "Annotation-basis_"
 
 # The tenant's add-on choice, comma separated ids, beside the tenant field. Read only with a
-# trusted tenant, into that tenant attachment's `body.addons`.
+# trusted tenant, and only when `TELNYX_ADDONS_FROM_RELAY` is on, into that tenant
+# attachment's `body.addons`.
 ADDONS_FIELD = "Annotation-addons"
 
 # Peer addresses trusted as the relay without a token. The ASGI client address, never a
@@ -297,7 +298,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         relayed_tenants: list[str] | None = None,
         relay_trusted: bool = False,
         relayed_basis: dict[str, list] | None = None,
-        relayed_addons: list[str] | None = None,
+        relayed_addons: list | None = None,
     ) -> str:
         """Shared by the Call Control JSON webhook and the TeXML form callback.
 
@@ -408,8 +409,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         (`TelnyxVconBuilder._attach_tenant`). With such a tenant, the `Annotation-basis_<key>`
         fields beside it are that tenant's lawful basis, used in place of the global one
         (`TelnyxVconBuilder._apply_lawful_basis`); from an untrusted request they are ignored.
-        `Annotation-addons` is the tenant's add-on choice. It goes into the tenant attachment's
-        `body.addons` under the same trust and never becomes a tag.
+        `Annotation-addons` is the tenant's add-on choice. When `TELNYX_ADDONS_FROM_RELAY` is on,
+        it goes into the tenant attachment's `body.addons` under the same trust; it never
+        becomes a tag.
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
@@ -466,9 +468,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         for name, value in form.multi_items():
             if name.startswith(BASIS_PREFIX):
                 relayed_basis.setdefault(name[len(BASIS_PREFIX) :], []).append(value)
-        relayed_addons = [str(v) for v in form.getlist(ADDONS_FIELD)]
+        # Unconverted, as the basis values are: a value that is not text is refused, not str()'d.
+        relayed_addons = form.getlist(ADDONS_FIELD)
         distrust = relay_distrust(request)
-        if relayed_addons and distrust:
+        if relayed_addons and not config.addons_from_relay:
+            logger.info("%s ignored: TELNYX_ADDONS_FROM_RELAY is off", ADDONS_FIELD)
+            relayed_addons = []
+        elif relayed_addons and distrust:
             logger.warning("%s ignored: %s", ADDONS_FIELD, distrust)
             relayed_addons = []
         if relayed_tenants and distrust:

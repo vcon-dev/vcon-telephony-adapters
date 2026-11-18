@@ -108,13 +108,17 @@ def test_the_store_extractor_reads_the_tenant_from_real_builder_output(tmp_path)
             (TENANT_FIELD, TENANT),
             *[("Annotation-addons", a) for a in addons],
         ]
-        vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state)
+        vcon = post_forward(
+            urllib.parse.urlencode(pairs).encode(), state, TELNYX_ADDONS_FROM_RELAY="1"
+        )
         assert vcon.to_dict()["attachments"][-1]["body"].keys() >= {"id", "addons"}
         cases.append((f"telnyx/valid, {name}", wire(vcon), TENANT))
     state = tmp_path / "untrusted-addons"
     state.mkdir()
     pairs = [*FORMS["telnyx"], (TENANT_FIELD, TENANT), ("Annotation-addons", "conv-triage")]
-    vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state, peer=REMOTE)
+    vcon = post_forward(
+        urllib.parse.urlencode(pairs).encode(), state, peer=REMOTE, TELNYX_ADDONS_FROM_RELAY="1"
+    )
     cases.append(("telnyx/valid with add-ons, untrusted peer", wire(vcon), None))
 
     # Controls, so a reader that returned the same answer for everything would fail: the

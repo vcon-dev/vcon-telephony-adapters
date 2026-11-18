@@ -300,6 +300,7 @@ RECORDING_FORMAT=wav
 | `TELNYX_API_KEY` | Yes* | - | Telnyx API key for downloading recordings |
 | `TELNYX_PUBLIC_KEY` | Yes** | - | Public key for Call Control webhook signature validation |
 | `TELNYX_TEXML_CALLBACK_TOKEN` | Yes** | - | Shared-secret token that protects `/webhook/texml-recording` |
+| `TELNYX_ADDONS_FROM_RELAY` | No | `false` | Read `Annotation-addons` from a trusted relay into the tenant attachment's `body.addons` (see [Relayed annotations](#relayed-annotations-and-the-tenant-attachment)). Leave it off until the relaying receiver strips a copy of that field sent by a carrier; while off, the field is dropped and `addons` is never written |
 | `VALIDATE_TELNYX_WEBHOOK` | No | `true` | Enable webhook validation (both Call Control signatures and the TeXML token) |
 | `TELNYX_WEBHOOK_TOLERANCE_SECONDS` | No | `300` | Replay-window tolerance for `Telnyx-Timestamp` (Telnyx's own provider default; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 
@@ -380,7 +381,8 @@ all the others:
   as before.
 - The lawful basis of a vCon with this attachment is the tenant's own, never `LAWFUL_BASIS`
   (next section).
-- When the same trusted relay also sends `Annotation-addons`, the tenant's add-on choice as
+- When `TELNYX_ADDONS_FROM_RELAY` is on (it is off by default) and the same trusted relay also
+  sends `Annotation-addons`, the tenant's add-on choice as
   comma separated ids, `body` gains `addons`: `{"id": "t-00000000000000a1", "addons":
   ["conv-triage"]}`. The list is sorted and unique, and an id outside `conv-triage` and
   `voice-screen` is dropped. A value that does not parse (an empty id, a space, a different
@@ -389,6 +391,10 @@ all the others:
   `{"id": ...}` with no `addons` key at all. The list is never an `annotation_addons` tag,
   and from an untrusted request, or with no tenant that counts, it is dropped: no attachment
   carries it. A reader such as the triage link takes the choice from `body.addons` alone.
+  Turn the setting on only after the receiver that forwards to this adapter strips an
+  `Annotation-addons` field that a carrier sent (any letter case, percent-encoded names
+  included); until then a carrier could choose a tenant's add-ons. With the setting off the
+  field is dropped as if the request were untrusted, and the vCon has no `addons` key.
 
 A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
 tenant.

@@ -35,6 +35,10 @@ from .tenant_cases import (
 TOKEN = "synthetic-callback-token"
 ADDONS = "Annotation-addons"
 
+# `TELNYX_ADDONS_FROM_RELAY` is off by default. Every case that reads the list turns it on,
+# and the cases for the off state say so.
+ON = {"TELNYX_ADDONS_FROM_RELAY": "1"}
+
 
 def _body(carrier, tenant=TENANT, *addons, extra=()):
     """The forward as the receiver sends it: the tenant, then the add-on field(s)."""
@@ -47,6 +51,7 @@ def _body(carrier, tenant=TENANT, *addons, extra=()):
 
 
 def _post(tmp_path, carrier, tenant=TENANT, *addons, **kwargs):
+    kwargs = {**ON, **kwargs}
     return post_forward(_body(carrier, tenant, *addons), tmp_path, **kwargs)
 
 
@@ -207,7 +212,7 @@ def test_a_json_body_cannot_claim_trust_or_a_list(tmp_path):
         annotations={"tenant": TENANT, "addons": "conv-triage"},
     )
     with (
-        patch.dict("os.environ", adapter_env(tmp_path), clear=True),
+        patch.dict("os.environ", adapter_env(tmp_path, **ON), clear=True),
         patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
     ):
         poster_cls.return_value.post.return_value = True
@@ -318,7 +323,7 @@ def test_only_the_exact_field_name_turns_an_addon_on(tmp_path, name):
     body = urllib.parse.urlencode(
         [*FORMS["telnyx"], ("Annotation-tenant", TENANT), (name, "conv-triage")]
     )
-    vcon = post_forward(body.encode(), tmp_path)
+    vcon = post_forward(body.encode(), tmp_path, **ON)
 
     assert _bodies(vcon) == [{"id": TENANT}]
 
@@ -327,3 +332,124 @@ def test_the_tenant_s_basis_is_untouched_by_the_list(tmp_path):
     """A tenant with no basis fields still has no lawful_basis attachment, list or not."""
     vcon = _post(tmp_path, "telnyx", TENANT, "conv-triage")
     assert not [a for a in vcon.to_dict()["attachments"] if a["purpose"] == "lawful_basis"]
+
+
+# ---- the setting: off by default, and while off `addons` is never written
+
+
+def _off(tmp_path, caplog, **env):
+    """A trusted relay with a valid tenant and a list, with the setting off or unset."""
+    caplog.set_level(logging.INFO, logger="adapters.telnyx.webhook")
+    vcon = post_forward(_body("telnyx", TENANT, "conv-triage,voice-screen"), tmp_path, **env)
+
+    assert _bodies(vcon) == [{"id": TENANT}], "the tenant is attached, with no addons key"
+    assert "addons" not in json.dumps(vcon.to_dict())
+    assert not [k for k in _tags(vcon) if "addons" in k.lower()]
+    [line] = [r.getMessage() for r in caplog.records if ADDONS in r.getMessage()]
+    assert line == f"{ADDONS} ignored: TELNYX_ADDONS_FROM_RELAY is off"
+    assert "conv-triage" not in line
+    return vcon
+
+
+def test_the_setting_is_off_when_unset(tmp_path, caplog):
+    _off(tmp_path, caplog)
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", ""])
+def test_a_trusted_list_is_never_written_while_the_setting_is_off(tmp_path, caplog, value):
+    _off(tmp_path, caplog, TELNYX_ADDONS_FROM_RELAY=value)
+
+
+def test_the_vcon_with_the_setting_off_is_the_vcon_without_a_list(tmp_path, caplog):
+    """Off, a form with a list builds the same vCon as a form with none."""
+    vcon = _off(tmp_path, caplog)
+    (tmp_path / "plain").mkdir()
+    plain = post_forward(_body("telnyx", TENANT), tmp_path / "plain")
+    assert normalized(vcon).replace(vcon.uuid, "<uuid>") == normalized(plain)
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes"])
+def test_the_setting_on_reads_the_list(tmp_path, value):
+    vcon = post_forward(
+        _body("telnyx", TENANT, "conv-triage"), tmp_path, TELNYX_ADDONS_FROM_RELAY=value
+    )
+    assert _bodies(vcon) == [{"id": TENANT, "addons": ["conv-triage"]}]
+
+
+def test_with_the_setting_off_no_tenant_still_means_no_attachment(tmp_path):
+    vcon = post_forward(_body("telnyx", None, "conv-triage"), tmp_path)
+    assert _tenant_attachments(vcon) == []
+
+
+# ---- the route hands the builder an empty list for an untrusted request
+
+
+def _what_the_route_passes(tmp_path, **kwargs):
+    """The `relayed_addons` the route gives `TelnyxRecordingData` for one post."""
+    from unittest.mock import patch
+
+    seen = {}
+
+    def spy(*args, **kw):
+        seen.update(kw)
+        return TelnyxRecordingData(*args, **kw)
+
+    with patch("adapters.telnyx.webhook.TelnyxRecordingData", side_effect=spy):
+        post_forward(_body("telnyx", TENANT, "conv-triage"), tmp_path, **{**ON, **kwargs})
+    return seen
+
+
+def test_the_route_blanks_the_list_of_an_untrusted_request(tmp_path):
+    """The builder checks trust again, so a missing blanking would still attach nothing. This
+    pins the route's own step."""
+    seen = _what_the_route_passes(tmp_path, peer=REMOTE)
+    assert seen["relayed_tenants"] == [TENANT], "the tenant field itself is passed on"
+    assert seen["relay_trusted"] is False
+    assert list(seen["relayed_addons"]) == []
+
+
+def test_the_route_blanks_the_list_while_the_setting_is_off(tmp_path):
+    seen = _what_the_route_passes(tmp_path, TELNYX_ADDONS_FROM_RELAY="0")
+    assert seen["relay_trusted"] is True
+    assert list(seen["relayed_addons"]) == []
+
+
+def test_the_route_passes_the_list_of_a_trusted_request_on(tmp_path):
+    seen = _what_the_route_passes(tmp_path)
+    assert list(seen["relayed_addons"]) == ["conv-triage"]
+
+
+def test_the_route_does_not_convert_a_value_to_text(tmp_path):
+    """A multipart part with a file name is an upload, not text. It reaches the builder as it
+    is, and gives no add-ons."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from adapters.telnyx.config import TelnyxConfig
+    from adapters.telnyx.webhook import create_app
+
+    from .tenant_cases import LOOPBACK, adapter_env
+
+    seen = {}
+
+    def spy(*args, **kw):
+        seen.update(kw)
+        return TelnyxRecordingData(*args, **kw)
+
+    files = {ADDONS: ("addons.txt", b"conv-triage", "text/plain")}
+    data = dict(FORMS["telnyx"])
+    data["Annotation-tenant"] = TENANT
+    with (
+        patch.dict("os.environ", adapter_env(tmp_path, **ON), clear=True),
+        patch("adapters.telnyx.webhook.HttpPoster") as poster_cls,
+        patch("adapters.telnyx.webhook.TelnyxRecordingData", side_effect=spy),
+    ):
+        poster_cls.return_value.post.return_value = True
+        client = TestClient(create_app(TelnyxConfig()), client=LOOPBACK)
+        response = client.post("/webhook/texml-recording", data=data, files=files)
+    assert response.status_code == 200
+    [value] = seen["relayed_addons"]
+    assert not isinstance(value, str)
+    (vcon,), _ = poster_cls.return_value.post.call_args
+    assert _bodies(vcon) == [{"id": TENANT, "addons": []}]
