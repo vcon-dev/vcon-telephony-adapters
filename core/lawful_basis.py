@@ -30,6 +30,7 @@ library rather than hand-rolling it:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
@@ -52,6 +53,23 @@ VALID_LAWFUL_BASES = frozenset(
 )
 
 DEFAULT_PURPOSES = ("recording",)
+
+# The header on the health route that carries `purposes_sha12`.
+PURPOSES_HEADER = "X-Purposes-Sha12"
+
+
+def parse_purposes(value: str) -> list[str]:
+    """The purposes in a `LAWFUL_BASIS_PURPOSES` value: comma separated, stripped, empties
+    dropped. An empty value is no purposes."""
+    return [p.strip() for p in value.split(",") if p.strip()]
+
+
+def purposes_sha12(purposes: Iterable[str]) -> str:
+    """A 12 hex fingerprint of the granted purposes: sha256 of them joined by commas, in the
+    order given. The receiver, the media host and this adapter must hold the same value, and a
+    deploy check compares the three."""
+    joined = ",".join(p.strip() for p in purposes if p and p.strip())
+    return hashlib.sha256(joined.encode()).hexdigest()[:12]
 
 
 class LawfulBasisConfig:

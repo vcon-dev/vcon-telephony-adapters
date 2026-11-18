@@ -5,6 +5,7 @@ import os
 
 from dotenv import load_dotenv
 
+from core.lawful_basis import parse_purposes
 from core.webhook_security import parse_tolerance_seconds
 
 logger = logging.getLogger(__name__)
@@ -80,11 +81,7 @@ class BaseConfig:
         # missing one. Unset means the attachment is absent and a warning is
         # logged, not that a placeholder is invented.
         self.lawful_basis = os.getenv("LAWFUL_BASIS")
-        self.lawful_basis_purposes = [
-            p.strip()
-            for p in os.getenv("LAWFUL_BASIS_PURPOSES", "recording").split(",")
-            if p.strip()
-        ]
+        self.lawful_basis_purposes = parse_purposes(os.getenv("LAWFUL_BASIS_PURPOSES", "recording"))
         self.lawful_basis_expiration = os.getenv("LAWFUL_BASIS_EXPIRATION") or None
         self.lawful_basis_justification = os.getenv("LAWFUL_BASIS_JUSTIFICATION") or None
 

@@ -99,6 +99,24 @@ def test_the_store_extractor_reads_the_tenant_from_real_builder_output(tmp_path)
     vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state)
     cases.append(("telnyx/two different tenants", wire(vcon), None))
 
+    # The add-on choice rides in the same body, and the extractor still reads `body.id`.
+    for name, addons in [("one add-on", ["conv-triage"]), ("empty list", [""])]:
+        state = tmp_path / name.replace(" ", "-")
+        state.mkdir()
+        pairs = [
+            *FORMS["telnyx"],
+            (TENANT_FIELD, TENANT),
+            *[("Annotation-addons", a) for a in addons],
+        ]
+        vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state)
+        assert vcon.to_dict()["attachments"][-1]["body"].keys() >= {"id", "addons"}
+        cases.append((f"telnyx/valid, {name}", wire(vcon), TENANT))
+    state = tmp_path / "untrusted-addons"
+    state.mkdir()
+    pairs = [*FORMS["telnyx"], (TENANT_FIELD, TENANT), ("Annotation-addons", "conv-triage")]
+    vcon = post_forward(urllib.parse.urlencode(pairs).encode(), state, peer=REMOTE)
+    cases.append(("telnyx/valid with add-ons, untrusted peer", wire(vcon), None))
+
     # Controls, so a reader that returned the same answer for everything would fail: the
     # string-body form the design warns reads as no tenant, and a bare object reads.
     cases.append(

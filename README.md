@@ -380,6 +380,15 @@ all the others:
   as before.
 - The lawful basis of a vCon with this attachment is the tenant's own, never `LAWFUL_BASIS`
   (next section).
+- When the same trusted relay also sends `Annotation-addons`, the tenant's add-on choice as
+  comma separated ids, `body` gains `addons`: `{"id": "t-00000000000000a1", "addons":
+  ["conv-triage"]}`. The list is sorted and unique, and an id outside `conv-triage` and
+  `voice-screen` is dropped. A value that does not parse (an empty id, a space, a different
+  case, text that is not a list, or two different values on the form) gives `"addons": []` and
+  one warning naming only the reason. With no `Annotation-addons` field, `body` is
+  `{"id": ...}` with no `addons` key at all. The list is never an `annotation_addons` tag,
+  and from an untrusted request, or with no tenant that counts, it is dropped: no attachment
+  carries it. A reader such as the triage link takes the choice from `body.addons` alone.
 
 A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
 tenant.
@@ -725,7 +734,7 @@ All adapters share these common configuration options:
 | `MEDIA_S3_PREFIX` | No | - | Key prefix for published recordings in the bucket |
 | `MEDIA_S3_ENDPOINT_URL` | No | - | Endpoint URL for an S3-compatible store (DigitalOcean Spaces, MinIO, Telnyx Cloud Storage); leave unset for AWS |
 | `LAWFUL_BASIS` | No | - | Why this deployment may hold the recording: `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, or `legitimate_interests`. Unset means no `lawful_basis` attachment is emitted; never defaulted. On the Telnyx TeXML route a call whose tenant a trusted relay names never takes it (see "The tenant's own lawful basis") |
-| `LAWFUL_BASIS_PURPOSES` | No | `recording` | Comma-separated purposes granted under the basis |
+| `LAWFUL_BASIS_PURPOSES` | No | `recording` | Comma-separated purposes granted under the basis. Stripped, empties dropped; set but empty means none. The Telnyx adapter's `GET /health` returns `X-Purposes-Sha12`, the first 12 hex of the sha256 of the parsed list joined by commas, so a deploy check can compare it with the receiver's and the media host's. The conversation add-ons are gated on `analysis` being in this list |
 | `LAWFUL_BASIS_EXPIRATION` | No | - | ISO 8601 timestamp when the lawful basis expires |
 | `LAWFUL_BASIS_JUSTIFICATION` | No | - | Free-text justification, stored in the attachment's metadata |
 
