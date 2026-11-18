@@ -1646,7 +1646,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "twilio", specifier = ">=8.0.0" },
     { name = "uvicorn", specifier = ">=0.23.0" },
-    { name = "vcon", specifier = ">=0.10.0" },
+    { name = "vcon", specifier = ">=0.10.0,<1" },
     { name = "vcon-telephony-adapters", extras = ["s3", "dev"], marker = "extra == 'all'" },
 ]
 provides-extras = ["s3", "dev", "all"]
