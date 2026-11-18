@@ -34,6 +34,11 @@ BASIS_PREFIX = "Annotation-basis_"
 # attachment's `body.addons`.
 ADDONS_FIELD = "Annotation-addons"
 
+# The screening outcome the relay forwards, one compact JSON object. Read only with a trusted
+# tenant, and only when `TELNYX_SCREEN_RESULT_FROM_RELAY` is on, into a `voice-screen` analysis
+# entry.
+SCREEN_RESULT_FIELD = "Annotation-screen_result"
+
 # Peer addresses trusted as the relay without a token. The ASGI client address, never a
 # header: uvicorn rewrites it from X-Forwarded-For only for a peer in FORWARDED_ALLOW_IPS.
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
@@ -299,11 +304,12 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         relay_trusted: bool = False,
         relayed_basis: dict[str, list] | None = None,
         relayed_addons: list | None = None,
+        relayed_screen_results: list | None = None,
     ) -> str:
         """Shared by the Call Control JSON webhook and the TeXML form callback.
 
-        Only the TeXML route passes `relayed_tenants`, `relay_trusted`, `relayed_basis` and
-        `relayed_addons`.
+        Only the TeXML route passes `relayed_tenants`, `relay_trusted`, `relayed_basis`,
+        `relayed_addons` and `relayed_screen_results`.
         """
         # Check event type
         data = event_data.get("data", event_data)
@@ -336,6 +342,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             relay_trusted=relay_trusted,
             relayed_basis=relayed_basis,
             relayed_addons=relayed_addons or (),
+            relayed_screen_results=relayed_screen_results or (),
         )
         recording_id = recording_data.recording_id
 
@@ -411,7 +418,10 @@ def create_app(config: TelnyxConfig) -> FastAPI:
         (`TelnyxVconBuilder._apply_lawful_basis`); from an untrusted request they are ignored.
         `Annotation-addons` is the tenant's add-on choice. When `TELNYX_ADDONS_FROM_RELAY` is on,
         it goes into the tenant attachment's `body.addons` under the same trust; it never
-        becomes a tag.
+        becomes a tag. `Annotation-screen_result` is the call's deepfake-screening outcome. When
+        `TELNYX_SCREEN_RESULT_FROM_RELAY` is on, a trusted relay's value, beside a trusted
+        tenant and valid, becomes one `voice-screen` analysis entry; from any other source it
+        is dropped, and it never becomes a tag.
 
         TeXML callbacks are not ed25519 signed the way Call Control webhooks are, so
         this path is gated with a shared-secret token in the callback URL instead
@@ -470,7 +480,14 @@ def create_app(config: TelnyxConfig) -> FastAPI:
                 relayed_basis.setdefault(name[len(BASIS_PREFIX) :], []).append(value)
         # Unconverted, as the basis values are: a value that is not text is refused, not str()'d.
         relayed_addons = form.getlist(ADDONS_FIELD)
+        relayed_screen_results = form.getlist(SCREEN_RESULT_FIELD)
         distrust = relay_distrust(request)
+        if relayed_screen_results and not config.screen_result_from_relay:
+            logger.info("%s ignored: TELNYX_SCREEN_RESULT_FROM_RELAY is off", SCREEN_RESULT_FIELD)
+            relayed_screen_results = []
+        elif relayed_screen_results and distrust:
+            logger.warning("%s ignored: %s", SCREEN_RESULT_FIELD, distrust)
+            relayed_screen_results = []
         if relayed_addons and not config.addons_from_relay:
             logger.info("%s ignored: TELNYX_ADDONS_FROM_RELAY is off", ADDONS_FIELD)
             relayed_addons = []
@@ -488,6 +505,7 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             relay_trusted=distrust is None,
             relayed_basis=relayed_basis,
             relayed_addons=relayed_addons,
+            relayed_screen_results=relayed_screen_results,
         )
 
     @app.get("/status/{recording_id}")

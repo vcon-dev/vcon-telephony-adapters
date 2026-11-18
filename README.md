@@ -301,6 +301,7 @@ RECORDING_FORMAT=wav
 | `TELNYX_PUBLIC_KEY` | Yes** | - | Public key for Call Control webhook signature validation |
 | `TELNYX_TEXML_CALLBACK_TOKEN` | Yes** | - | Shared-secret token that protects `/webhook/texml-recording` |
 | `TELNYX_ADDONS_FROM_RELAY` | No | `false` | Read `Annotation-addons` from a trusted relay into the tenant attachment's `body.addons` (see [Relayed annotations](#relayed-annotations-and-the-tenant-attachment)). Leave it off until the relaying receiver strips a copy of that field sent by a carrier; while off, the field is dropped and `addons` is never written |
+| `TELNYX_SCREEN_RESULT_FROM_RELAY` | No | `false` | Read `Annotation-screen_result` from a trusted relay, beside a tenant that counts, into one `voice-screen` analysis entry (see [Relayed annotations](#relayed-annotations-and-the-tenant-attachment)). Leave it off until the relaying receiver strips a copy of that field sent by a carrier; while off, the field is dropped and no entry is written. The field is never kept as a tag, on or off |
 | `VALIDATE_TELNYX_WEBHOOK` | No | `true` | Enable webhook validation (both Call Control signatures and the TeXML token) |
 | `TELNYX_WEBHOOK_TOLERANCE_SECONDS` | No | `300` | Replay-window tolerance for `Telnyx-Timestamp` (Telnyx's own provider default; see [Webhook replay window](#webhook-replay-window) for the full resolution order) |
 
@@ -395,6 +396,27 @@ all the others:
   `Annotation-addons` field that a carrier sent (any letter case, percent-encoded names
   included); until then a carrier could choose a tenant's add-ons. With the setting off the
   field is dropped as if the request were untrusted, and the vCon has no `addons` key.
+- When `TELNYX_SCREEN_RESULT_FROM_RELAY` is on (it is off by default), the same trusted relay
+  sends `Annotation-screen_result`, and a tenant counts, the call's deepfake-screening outcome
+  becomes one `analysis` entry on dialog 0: `type` `voice-screen`, `vendor` `modulate`,
+  `product` `velma-2-synthetic-voice-detection-streaming`, `schema` `voice-screen-result-v1`,
+  `encoding` `json`, and a `body` of `status`, `mode`, `threshold`, `windows`, `frames`,
+  `synthetic_frames`, `max_confidence`, `decided_at`, `action`, `action_result`, `acted_at` and
+  `telnyx_status`. A call whose result never reached the relay sends `{"status": "missing"}`, alone or with the
+  four action keys, and that is written as sent. The value is one JSON object of at most 1024
+  bytes (the receiver sends it compact; spacing and key order are not checked) with exactly
+  those keys, each checked for its type and range (statuses, modes and actions against fixed
+  lists; counts as whole numbers in range; the threshold and confidence from 0 to 1; times as
+  ISO 8601 with a zone). `acted_at` and `telnyx_status` must be set exactly when
+  `action_result` is `accepted` or `gone`, and null otherwise. Anything else is dropped with one warning that
+  names only the reason, and nothing is written. The body is rebuilt from the checked values,
+  so no text from the request is copied. The field is never an `annotation_screen_result` tag,
+  in any letter case, with the setting on or off, and no other `Annotation-screen_*` name is
+  kept as a tag either (the receiver reserves that prefix). From an untrusted request, with no tenant
+  that counts, or with the setting off, it is dropped and the vCon is as it was. Turn the
+  setting on only after the receiver that forwards to this adapter strips an
+  `Annotation-screen_result` field that a carrier sent, and a reader should take the outcome
+  from the `voice-screen` entry alone.
 
 A vCon with no tenant attachment is one that a store enforcing tenancy cannot file under a
 tenant.

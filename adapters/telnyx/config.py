@@ -66,6 +66,13 @@ class TelnyxConfig(BaseConfig):
             "yes",
         )
 
+        # Whether to read `Annotation-screen_result` from a trusted relay into a `voice-screen`
+        # analysis entry. Off by default, for the same reason: the relaying receiver must strip a
+        # copy a carrier sends before this is turned on. While off, the field is dropped.
+        self.screen_result_from_relay = os.getenv(
+            "TELNYX_SCREEN_RESULT_FROM_RELAY", "false"
+        ).lower() in ("true", "1", "yes")
+
         if self.validate_webhook and not self.telnyx_public_key:
             if self.allow_unsigned_webhooks:
                 logger.warning(
