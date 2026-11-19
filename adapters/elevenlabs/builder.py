@@ -20,7 +20,7 @@ earlier `rescue/cursor-multi-mode-wip` draft used.
 Like the VAPI and Pipecat builders, this is written directly against
 vcon-lib rather than `core.base_builder.BaseVconBuilder`, but follows the
 same conventions: `LawfulBasisConfig`, the configured `AudioPublisher`,
-`mediatype`, and the draft-04 attachment-field backfill.
+`mediatype`, and the core-05 attachment-field backfill.
 """
 
 from __future__ import annotations
@@ -39,7 +39,9 @@ from typing import Any
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
+from vcon.session import Session
 
+from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
@@ -108,6 +110,14 @@ class ElevenLabsVconBuilder:
 
             vcon.add_party(Party(role="user"))
             vcon.add_party(Party(name="Agent", role="agent"))
+            # One Session per conversation (core-05); both parties receive it.
+            session_index = vcon.add_session(
+                Session(
+                    start=start_iso,
+                    duration=metadata.get("call_duration_secs"),
+                    parties=[0, 1],
+                )
+            )
 
             for turn in data.get("transcript", []) or []:
                 role = turn.get("role")
@@ -123,16 +133,17 @@ class ElevenLabsVconBuilder:
                             turn_start = _epoch_to_iso(base_epoch + float(turn_offset))
                     except (TypeError, ValueError):
                         pass
+                # The speaker is the turn's only contributor.
                 vcon.add_dialog(
                     Dialog(
                         type="text",
                         start=turn_start,
-                        parties=[0, 1],
-                        originator=0 if role == "user" else 1,
+                        parties=[0 if role == "user" else 1],
                         body=turn.get("message", "") or "",
                         encoding="none",
                         mediatype="text/plain",
-                    )
+                    ),
+                    session=session_index,
                 )
                 _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
@@ -171,7 +182,7 @@ class ElevenLabsVconBuilder:
                     body=json.dumps(call_record),
                     encoding="json",
                     party=0,
-                    dialog=0,
+                    session=session_index,
                 )
 
             self._finish(vcon, data)
@@ -200,6 +211,7 @@ class ElevenLabsVconBuilder:
 
             vcon.add_party(Party(role="user"))
             vcon.add_party(Party(name="Agent", role="agent"))
+            session_index = vcon.add_session(Session(start=start_iso, parties=[0, 1]))
 
             conversation_id = data.get("conversation_id") or "elevenlabs-conversation"
             filename = f"{conversation_id}.mp3"
@@ -229,7 +241,7 @@ class ElevenLabsVconBuilder:
                 dialog_kwargs["content_hash"] = _sha512_content_hash(audio_bytes)
                 dialog_kwargs["filename"] = filename
 
-            vcon.add_dialog(Dialog(**dialog_kwargs))
+            vcon.add_dialog(Dialog(**dialog_kwargs), session=session_index)
             _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
             self._finish(vcon, data)
@@ -247,19 +259,14 @@ class ElevenLabsVconBuilder:
         if data.get("agent_id"):
             vcon.add_tag("agent_id", data["agent_id"])
 
-        if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+        if self.lawful_basis is None or not self.lawful_basis.apply(vcon, session_index=0):
             logger.warning(
                 "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
                 "before handling real conversations.",
                 vcon.uuid,
             )
 
-        for attachment in vcon.vcon_dict.get("attachments", []):
-            attachment.setdefault("start", vcon.created_at)
-            attachment.setdefault("party", 0)
-            attachment.setdefault("dialog", 0)
-            if attachment.get("body") is not None:
-                attachment.setdefault("mediatype", "application/json")
+        scope_attachments(vcon, 0)
 
     def _publish(self, audio_bytes: bytes, filename: str) -> tuple[str, str] | None:
         tmp_dir = Path(tempfile.mkdtemp(prefix="vcon-media-"))

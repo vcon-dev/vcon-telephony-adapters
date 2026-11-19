@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vcon-telephony-adapters"
-version = "0.2.0"
+version = "0.3.0"
 description = "Telephony adapters for converting recordings to vCon format - supports Twilio and more"
 readme = "README.md"
 license = {text = "MIT"}
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
 ]
 dependencies = [
-    "vcon>=0.10.0,<1",
+    "vcon>=1.0.3,<2",
     "python-dotenv>=1.0.0",
     "requests>=2.28.0",
     "fastapi>=0.100.0",

@@ -203,7 +203,7 @@ def normalized(vcon) -> str:
     """The wire JSON with only the generated uuid and times replaced by placeholders.
 
     Generated times are `created_at`, every `start` and `granted_at` stamped during the build
-    (a bridge form names no recording time, so its dialog starts "now"). The result is
+    (a bridge form names no recording time, so its Session and Dialog start "now"). The result is
     re-serialized with `json.dumps`, which is what `Vcon.to_json()` does, so every other byte
     is the builder's own; the round trip is checked first.
     """
@@ -211,7 +211,12 @@ def normalized(vcon) -> str:
     assert json.dumps(json.loads(wire)) == wire, "wire JSON does not round-trip byte for byte"
     doc = json.loads(wire)
     doc["uuid"] = "<uuid>"
-    stamped = [doc, *doc.get("dialog", []), *doc.get("attachments", [])]
+    stamped = [
+        doc,
+        *doc.get("sessions", []),
+        *doc.get("dialog", []),
+        *doc.get("attachments", []),
+    ]
     for attachment in doc.get("attachments", []):
         if attachment.get("purpose") == "lawful_basis":
             stamped += attachment["body"].get("purpose_grants", [])
@@ -227,11 +232,17 @@ def golden_path(carrier: str, case: str) -> Path:
 
 
 def write_goldens() -> None:
+    """Each golden is the vCon as it was before the tenant attachment existed.
+
+    For `valid` that is the same form posted from a peer not trusted as the relay: the tenant
+    does not count, so the vCon carries the tag and the global basis and no tenant attachment.
+    """
     GOLDENS.mkdir(parents=True, exist_ok=True)
     for carrier in CARRIERS:
         for case, tenant in CASES.items():
+            peer = {"peer": REMOTE} if case == "valid" else {}
             with tempfile.TemporaryDirectory() as state_dir:
-                vcon = post_forward(form_body(carrier, tenant), state_dir)
+                vcon = post_forward(form_body(carrier, tenant), state_dir, **peer)
             golden_path(carrier, case).write_text(normalized(vcon) + "\n")
 
 

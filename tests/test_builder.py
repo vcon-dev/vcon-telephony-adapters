@@ -407,7 +407,8 @@ class TestVconBuilderOriginator:
         )
         vcon = builder_no_download.build(data)
 
-        assert vcon.dialog[0]["originator"] == 1
+        assert vcon.to_dict()["sessions"][0]["originator"] == 1
+        assert "originator" not in vcon.dialog[0]
 
     def test_originator_outbound_call(self, builder_no_download):
         """Outbound call sets originator to party 0 (us)."""
@@ -421,7 +422,9 @@ class TestVconBuilderOriginator:
         )
         vcon = builder_no_download.build(data)
 
-        assert vcon.dialog[0]["originator"] == 0
+        # Core-05: the first party is the implied originator, so none is written.
+        assert "originator" not in vcon.to_dict()["sessions"][0]
+        assert "originator" not in vcon.dialog[0]
 
     def test_originator_outbound_api(self, builder_no_download):
         """outbound-api direction sets originator to party 0 (we initiated)."""
@@ -436,7 +439,9 @@ class TestVconBuilderOriginator:
         vcon = builder_no_download.build(data)
 
         # outbound-api means we initiated the call via API, so originator is party 0
-        assert vcon.dialog[0]["originator"] == 0
+        # Core-05: the first party is the implied originator, so none is written.
+        assert "originator" not in vcon.to_dict()["sessions"][0]
+        assert "originator" not in vcon.dialog[0]
 
     def test_originator_missing_direction(self, builder_no_download):
         """Missing direction defaults to party 1."""
@@ -449,7 +454,8 @@ class TestVconBuilderOriginator:
         )
         vcon = builder_no_download.build(data)
 
-        assert vcon.dialog[0]["originator"] == 1
+        assert vcon.to_dict()["sessions"][0]["originator"] == 1
+        assert "originator" not in vcon.dialog[0]
 
 
 class TestVconBuilderUrlReference:

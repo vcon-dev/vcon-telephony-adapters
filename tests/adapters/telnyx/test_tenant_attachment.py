@@ -45,10 +45,13 @@ from .tenant_cases import (
 
 TOKEN = "synthetic-callback-token"
 
-WG_SCHEMA = json.loads((Path(__file__).parents[2] / "schema" / "vcon_json_schema.json").read_text())
+WG_SCHEMA = json.loads(
+    (Path(__file__).parents[2] / "schema" / "vcon-core-05-appendix-c-json-schema.json").read_text()
+)
 
 # The shape the multi-tenant design gives, with `start` filled in by the adapter.
-DESIGN_KEYS = ["purpose", "start", "party", "dialog", "mediatype", "encoding", "body"]
+# Core-05: scoped to the call's Session, not to a Dialog.
+DESIGN_KEYS = ["purpose", "start", "party", "session", "mediatype", "encoding", "body"]
 
 
 def _post(tmp_path, carrier, tenant=None, body=None):
@@ -83,7 +86,7 @@ def test_a_valid_tenant_adds_the_attachment_in_the_design_shape(tmp_path, carrie
         "purpose": "tenant",
         "start": vcon.created_at,
         "party": 0,
-        "dialog": 0,
+        "session": 0,
         "mediatype": "application/json",
         "encoding": "json",
         "body": {"id": TENANT},
@@ -95,7 +98,7 @@ def test_a_valid_tenant_adds_the_attachment_in_the_design_shape(tmp_path, carrie
 
 @pytest.mark.parametrize("carrier", CARRIERS)
 def test_the_attachment_meets_the_attachment_object_rules(tmp_path, carrier):
-    """Draft -04 and the spec kit: `purpose` and never `type`, `start`/`party`/`dialog`
+    """Draft -05 and the spec kit: `purpose` and never `type`, `start`/`party`/`session`
     present, `start` an ISO 8601 time with a zone, and an `encoding: json` body that is the
     JSON value, not a string of it."""
     vcon = _post(tmp_path, carrier, TENANT)
@@ -103,7 +106,7 @@ def test_the_attachment_meets_the_attachment_object_rules(tmp_path, carrier):
 
     assert "type" not in attachment
     assert isinstance(attachment["body"], dict)
-    assert isinstance(attachment["party"], int) and isinstance(attachment["dialog"], int)
+    assert isinstance(attachment["party"], int) and isinstance(attachment["session"], int)
     start = datetime.fromisoformat(attachment["start"].replace("Z", "+00:00"))
     assert start.tzinfo is not None
     assert attachment["start"] == vcon.created_at, "the same start as every other attachment"
@@ -407,7 +410,7 @@ def test_tenant_attachment_shape():
         "purpose": "tenant",
         "start": "2026-11-06T18:00:00Z",
         "party": 0,
-        "dialog": 0,
+        "session": 0,
         "mediatype": "application/json",
         "encoding": "json",
         "body": {"id": TENANT},

@@ -366,12 +366,12 @@ value is a tenant id (`t-` and 16 lowercase hex digits), the vCon gains this att
 all the others:
 
 ```json
-{"purpose": "tenant", "start": "2026-11-06T18:00:00+00:00", "party": 0, "dialog": 0,
+{"purpose": "tenant", "start": "2026-11-06T18:00:00+00:00", "party": 0, "session": 0,
  "mediatype": "application/json", "encoding": "json", "body": {"id": "t-00000000000000a1"}}
 ```
 
 - `start` is the vCon's `created_at`, as on every other attachment the adapter writes.
-- `body` is the JSON object itself (draft-ietf-vcon-vcon-core-04), and a store reads the
+- `body` is the JSON object itself (draft-ietf-vcon-vcon-core-05), and a store reads the
   tenant from `body.id`. A `json.dumps` string under `encoding: "none"` would read as no tenant.
 - The `annotation_tenant` tag is kept as before.
 - With no `Annotation-tenant` field the vCon is exactly what it was before this attachment
@@ -473,7 +473,7 @@ A customer's own entry gives (values synthetic):
           "metadata": {"justification": "Synthetic: recordings serve the synthetic service contract.",
                        "consent_record": "off", "chosen_by": "synthetic customer admin",
                        "chosen_at": "2026-11-01T09:00:00Z", "entered_by": "customer"}},
- "party": 0, "dialog": 0, "mediatype": "application/json",
+ "party": 0, "session": 0, "mediatype": "application/json",
  "start": "2026-11-12T16:15:56.839532+00:00"}
 ```
 
@@ -768,10 +768,12 @@ All adapters share these common configuration options:
 
 The `lawful_basis` attachment (and every other JSON-encoded attachment these
 adapters emit, such as the platform tags attachment) follows
-draft-ietf-vcon-vcon-core-04 §2.3.2: for `encoding: "json"`, `body` is the
+draft-ietf-vcon-vcon-core-05 §2.3.2: for `encoding: "json"`, `body` is the
 raw JSON value itself (an object or array), not a `json.dumps` string.
-`mediatype: "application/json"` is set alongside it, and `start`/`party`/
-`dialog` are always present, as the Attachment Object requires.
+`mediatype: "application/json"` is set alongside it, and `start`, `party`
+and a `session` (or, for per-recording metadata, `dialog`) scope are always
+present, as the Attachment Object requires. The lawful basis is scoped to
+the call's Session, per the core-05 lawful basis draft.
 
 ## Webhook authentication
 
@@ -874,16 +876,37 @@ Get the processing status for a specific recording.
 
 ## vCon Structure
 
-All adapters create vCons with this structure:
+All adapters write vCon core-05 (draft-ietf-vcon-vcon-core-05, syntax `0.5.0`) and
+need `vcon>=1.0.3,<2`. The structure:
+
+- One Session Object per call in `sessions[]`. Its `parties` are everyone who received
+  the call, its `dialog` lists the call's Dialogs, and `originator` is set only when it
+  is not the first party (an inbound call is originated by party 1).
+- Each Dialog's `parties` are its contributors: both parties for a call recording, the
+  speaker alone for a text turn (ElevenLabs, Pipecat, VAPI). A SignalWire call with
+  several recording segments is one Session listing every segment; there is no
+  recording-set Dialog.
+- Telnyx call lifecycle facts are Events in `events[]`: `join` and `drop`, and a SIP
+  REFER becomes `blind-transfer`, or `consultation-start` plus `consultative-transfer`.
+  Transfers are never Dialogs.
 
 ```json
 {
-    "vcon": "0.4.0",
+    "vcon": "0.5.0",
     "uuid": "auto-generated-uuid",
     "created_at": "2025-01-21T10:30:00+00:00",
     "parties": [
         {"tel": "+15551234567"},
         {"tel": "+15559876543"}
+    ],
+    "sessions": [
+        {
+            "start": "2025-01-21T10:30:00+00:00",
+            "duration": 120.0,
+            "parties": [0, 1],
+            "originator": 1,
+            "dialog": [0]
+        }
     ],
     "dialog": [
         {
@@ -891,7 +914,6 @@ All adapters create vCons with this structure:
             "start": "2025-01-21T10:30:00+00:00",
             "duration": 120.0,
             "parties": [0, 1],
-            "originator": 0,
             "mediatype": "audio/wav",
             "body": "base64url-encoded-audio-data",
             "encoding": "base64url"
@@ -902,11 +924,12 @@ All adapters create vCons with this structure:
             "purpose": "lawful_basis",
             "start": "2025-01-21T10:30:00+00:00",
             "party": 0,
-            "dialog": 0,
+            "session": 0,
             "mediatype": "application/json",
             "encoding": "json",
             "body": {
                 "lawful_basis": "consent",
+                "expiration": null,
                 "purpose_grants": [
                     {"purpose": "recording", "granted": true, "granted_at": "2025-01-21T10:30:00+00:00"}
                 ]

@@ -11,6 +11,7 @@ from typing import Any
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
+from vcon.session import Session
 
 from .encoding import base64url_encode
 from .lawful_basis import LawfulBasisConfig
@@ -24,6 +25,25 @@ MIME_TYPES = {
     "wav": "audio/wav",
     "mp3": "audio/mpeg",
 }
+
+
+def scope_attachments(vcon: Vcon, session_index: int = 0) -> None:
+    """Backfill what core-05 section 4.6 requires on every attachment.
+
+    `start` and `party` are always required, and `dialog` or `session`. Neither the
+    library's `add_tag()` nor a hand-built attachment sets all of them, so each one gets
+    `created_at` as its `start` (when this vCon, and every attachment on it, was produced),
+    party 0, and the call's Session when it names no scope. Every attachment here is
+    `encoding: "json"`, so a body gets `application/json`. Existing values are never
+    overwritten.
+    """
+    for attachment in vcon.vcon_dict.get("attachments", []):
+        attachment.setdefault("start", vcon.created_at)
+        attachment.setdefault("party", 0)
+        if "dialog" not in attachment and "session" not in attachment:
+            attachment["session"] = session_index
+        if attachment.get("body") is not None:
+            attachment.setdefault("mediatype", "application/json")
 
 
 class BaseRecordingData(ABC):
@@ -179,14 +199,21 @@ class BaseVconBuilder(ABC):
         """
         return f"{recording_url}.{self.recording_format}"
 
-    def _apply_lawful_basis(self, vcon: Vcon, recording_data: BaseRecordingData) -> None:
+    def _apply_lawful_basis(
+        self,
+        vcon: Vcon,
+        recording_data: BaseRecordingData,
+        session_index: int = 0,
+    ) -> None:
         """Why we are entitled to hold this recording: the deployment's configured basis.
 
         Emitted only when a deployment configured a basis; never invented on its behalf.
         A subclass may choose a per-call basis instead (the Telnyx adapter does, for a call
-        whose tenant a trusted relay names).
+        whose tenant a trusted relay names). It is scoped to the call's Session.
         """
-        if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+        if self.lawful_basis is None or not self.lawful_basis.apply(
+            vcon, session_index=session_index
+        ):
             logger.warning(
                 "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
                 "(consent | contract | legal_obligation | vital_interests | "
@@ -209,6 +236,43 @@ class BaseVconBuilder(ABC):
         if direction.lower() in ("outbound", "outbound-api", "outgoing"):
             return 0
         return 1
+
+    def _add_media(
+        self,
+        dialog_kwargs: dict[str, Any],
+        recording_data: BaseRecordingData,
+        filename: str,
+    ) -> None:
+        """Put the audio on a Dialog's kwargs: re-hosted, embedded or referenced."""
+        if self.publisher is not None and recording_data.recording_url:
+            # External media: re-host, then reference. The audio still has
+            # to be fetched (a pre-signed source URL expires), but it never
+            # enters the vCon.
+            published = self._publish_recording(recording_data, filename)
+            if published is not None:
+                dialog_kwargs["url"] = published.url
+                dialog_kwargs["content_hash"] = published.content_hash
+                dialog_kwargs["filename"] = filename
+            else:
+                logger.error(
+                    "Publishing failed for %s; emitting a dialog with no media "
+                    "rather than a link that will not resolve",
+                    recording_data.recording_id,
+                )
+
+        elif self.download_recordings and recording_data.recording_url:
+            audio_data = self._download_recording(recording_data)
+            if audio_data:
+                dialog_kwargs["body"] = base64url_encode(audio_data)
+                dialog_kwargs["encoding"] = "base64url"
+                dialog_kwargs["filename"] = filename
+            else:
+                logger.warning(
+                    f"Download failed, using URL reference for {recording_data.recording_id}"
+                )
+                dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
+        elif recording_data.recording_url:
+            dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
 
     def build(self, recording_data: BaseRecordingData) -> Vcon | None:
         """Build a vCon from recording data.
@@ -236,20 +300,24 @@ class BaseVconBuilder(ABC):
             vcon.add_party(caller_party)
             vcon.add_party(callee_party)
 
-            # Determine who initiated based on direction
+            # One Session per call (core-05): every party receives it, and the
+            # originator is named only when it is not the first party.
             originator = self._determine_originator(recording_data.direction)
+            session_index = vcon.add_session(
+                Session(
+                    start=start_time,
+                    duration=recording_data.duration_seconds,
+                    parties=[0, 1],
+                    originator=originator if originator != 0 else None,
+                )
+            )
 
-            # Build dialog
+            # Build dialog. Both parties contribute to the recording.
             mime_type = MIME_TYPES.get(self.recording_format, "audio/wav")
             dialog_kwargs: dict[str, Any] = {
                 "type": "recording",
                 "start": start_time,
                 "parties": [0, 1],
-                "originator": originator,
-                # `mediatype` is the spec field (draft-ietf-vcon-vcon-core-02).
-                # `mimetype` is not, so it landed as an unknown extra key while
-                # `mediatype` stayed absent, and vcon-lib's own validator
-                # rejects a dialog without it.
                 "mediatype": mime_type,
             }
 
@@ -258,40 +326,8 @@ class BaseVconBuilder(ABC):
                 dialog_kwargs["duration"] = recording_data.duration_seconds
 
             filename = f"{recording_data.recording_id}.{self.recording_format}"
-
-            if self.publisher is not None and recording_data.recording_url:
-                # External media: re-host, then reference. The audio still has
-                # to be fetched (a pre-signed source URL expires), but it never
-                # enters the vCon.
-                published = self._publish_recording(recording_data, filename)
-                if published is not None:
-                    dialog_kwargs["url"] = published.url
-                    dialog_kwargs["content_hash"] = published.content_hash
-                    dialog_kwargs["filename"] = filename
-                else:
-                    logger.error(
-                        "Publishing failed for %s; emitting a dialog with no media "
-                        "rather than a link that will not resolve",
-                        recording_data.recording_id,
-                    )
-
-            elif self.download_recordings and recording_data.recording_url:
-                audio_data = self._download_recording(recording_data)
-                if audio_data:
-                    dialog_kwargs["body"] = base64url_encode(audio_data)
-                    dialog_kwargs["encoding"] = "base64url"
-                    dialog_kwargs["filename"] = filename
-                else:
-                    logger.warning(
-                        f"Download failed, using URL reference for {recording_data.recording_id}"
-                    )
-                    dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
-            elif recording_data.recording_url:
-                dialog_kwargs["url"] = self._reference_url(recording_data.recording_url)
-
-            # Create dialog
-            dialog = Dialog(**dialog_kwargs)
-            vcon.add_dialog(dialog)
+            self._add_media(dialog_kwargs, recording_data, filename)
+            vcon.add_dialog(Dialog(**dialog_kwargs), session=session_index)
 
             # Add source tag
             vcon.add_tag("source", self.ADAPTER_SOURCE)
@@ -300,27 +336,8 @@ class BaseVconBuilder(ABC):
             for tag_name, tag_value in recording_data.platform_tags.items():
                 vcon.add_tag(tag_name, tag_value)
 
-            self._apply_lawful_basis(vcon, recording_data)
-
-            # The official schema (draft-ietf-vcon-vcon-core-04, Attachment
-            # Object) requires `start`, `party`, and `dialog` on every
-            # attachment, and `mediatype` whenever `body` is present. Neither
-            # vcon-lib's own `add_tag()` (the tags attachment above) nor its
-            # own validator enforces any of that, so every attachment this
-            # builder produces gets backfilled here rather than leaving a
-            # schema-invalid vCon. `created_at` is when this vCon, and every
-            # attachment on it, was produced, which is what "sent/exchanged"
-            # means for a tag or a lawful basis record; every attachment here
-            # is `encoding: "json"`, so `application/json` is always the
-            # right mediatype. Existing values are never overwritten (the
-            # lawful_basis attachment already sets its own party/dialog and
-            # mediatype).
-            for attachment in vcon.vcon_dict.get("attachments", []):
-                attachment.setdefault("start", vcon.created_at)
-                attachment.setdefault("party", 0)
-                attachment.setdefault("dialog", 0)
-                if attachment.get("body") is not None:
-                    attachment.setdefault("mediatype", "application/json")
+            self._apply_lawful_basis(vcon, recording_data, session_index=session_index)
+            scope_attachments(vcon, session_index)
 
             logger.info(
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "

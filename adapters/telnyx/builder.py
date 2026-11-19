@@ -10,8 +10,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
+from vcon import Vcon
+from vcon.dialog import Dialog
+from vcon.event import Event
+from vcon.party import Party
+from vcon.session import Session
 
-from core.base_builder import BaseRecordingData, BaseVconBuilder
+from core.base_builder import MIME_TYPES, BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig, RelayedBasisError, RelayedLawfulBasis
 from core.media_publisher import AudioPublisher
 
@@ -75,12 +80,13 @@ SCREEN_ANALYSIS = {
 
 
 def tenant_attachment(
-    tenant_id: str, start: str, addons: Sequence[str] | None = None
+    tenant_id: str, start: str, addons: Sequence[str] | None = None, session: int = 0
 ) -> dict[str, Any]:
     """The attachment that names the tenant a call belongs to.
 
-    Draft-ietf-vcon-vcon-core-04 Attachment Object: `purpose`, not the legacy `type`; `start`,
-    `party` and `dialog` present; and with `encoding: "json"` the body is the JSON value itself,
+    Draft-ietf-vcon-vcon-core-05 Attachment Object: `purpose`, not the legacy `type`; `start`,
+    `party` and `session` present (the tenant owns the whole call, so the scope is the call's
+    Session, as for every other attachment here); and with `encoding: "json"` the body is the JSON value itself,
     not a `json.dumps` string. A store reads the tenant from `body.id`. A string body under
     `encoding: "none"` would read back as no tenant at all.
 
@@ -94,7 +100,7 @@ def tenant_attachment(
         "purpose": "tenant",
         "start": start,
         "party": 0,
-        "dialog": 0,
+        "session": session,
         "mediatype": "application/json",
         "encoding": "json",
         "body": body,
@@ -289,6 +295,19 @@ def _is_telnyx_host(url: str) -> bool:
         return urlparse(url).hostname in TELNYX_API_HOSTS
     except ValueError:
         return False
+
+
+def _seconds_between(start: str, end: str) -> float | None:
+    """Seconds from `start` to `end` (ISO 8601), or None if either is missing or bad."""
+    if not (start and end):
+        return None
+    try:
+        t0 = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        t1 = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    seconds = round((t1 - t0).total_seconds(), 3)
+    return seconds if seconds >= 0 else None
 
 
 class TelnyxRecordingData(BaseRecordingData):
@@ -550,30 +569,101 @@ class TelnyxVconBuilder(BaseVconBuilder):
         self.api_key = api_key
 
     def build(self, recording_data: BaseRecordingData):
-        """Build, then attach signalling detail from the lifecycle events and the call's tenant.
+        """Build a core-05 vCon (syntax 0.5.0) from a recording and its call.
 
-        The lawful basis is chosen during the base build, by `_apply_lawful_basis`.
+        One Session per call: the receivers are on the Session, the contributors
+        on the recording Dialog. Lifecycle facts become party Events, a SIP
+        REFER becomes transfer Events, and every attachment carries its scope.
         """
-        vcon = super().build(recording_data)
-        if vcon is None:
+        try:
+            return self._build_core_05(recording_data)
+        except Exception as exc:  # noqa: BLE001 - one bad call must not kill the webhook
+            logger.error(
+                "Error building vCon from recording %s: %s", recording_data.recording_id, exc
+            )
             return None
 
-        session = getattr(recording_data, "_session", None)
-        if session is not None:
+    def _build_core_05(self, recording_data: BaseRecordingData):
+        call = getattr(recording_data, "_session", None)
+        start = recording_data.start_time
+        vcon = Vcon.build_new()
+
+        # Party 0 is the Telnyx `from`, party 1 the `to`. Every party is a
+        # receiver of the call, so both sit on the Session.
+        vcon.add_party(Party(tel=recording_data.from_number))
+        vcon.add_party(Party(tel=recording_data.to_number))
+        inbound = recording_data.direction == "inbound"
+
+        call_start = (call.start_time if call and call.start_time else None) or start.isoformat()
+        call_duration = _seconds_between(call_start, call.end_time) if call else None
+        if call_duration is None:
+            call_duration = recording_data.duration_seconds
+
+        # `originator` only when it is not the first party. This keeps the
+        # mapping of the 0.4.0 adapter (an incoming call is originated by
+        # party 1); see CHANGELOG.
+        originator = self._determine_originator(recording_data.direction)
+        session = Session(
+            start=call_start,
+            duration=call_duration,
+            parties=[0, 1],
+            originator=originator if originator != 0 else None,
+            session_id=(
+                {"local": recording_data.call_session_id, "remote": recording_data.call_session_id}
+                if recording_data.call_session_id
+                else None
+            ),
+        )
+        session_index = vcon.add_session(session)
+
+        dialog_kwargs: dict[str, Any] = {
+            "type": "recording",
+            "start": start,
+            # Contributors to the recording. Dual-channel or mono, both speak.
+            "parties": [0, 1],
+            "mediatype": MIME_TYPES.get(self.recording_format, "audio/wav"),
+        }
+        if recording_data.duration_seconds is not None:
+            dialog_kwargs["duration"] = recording_data.duration_seconds
+        filename = f"{recording_data.recording_id}.{self.recording_format}"
+        self._add_media(dialog_kwargs, recording_data, filename)
+        vcon.add_dialog(Dialog(**dialog_kwargs), session=session_index)
+
+        if call is not None:
+            self._add_party_events(vcon, call, session_index, call_start)
+            self._add_transfer_events(vcon, call, session_index, inbound)
+
+        vcon.add_tag("source", self.ADAPTER_SOURCE)
+        for tag_name, tag_value in recording_data.platform_tags.items():
+            vcon.add_tag(tag_name, tag_value)
+
+        # The tenant's relayed basis, else the deployment's; never invented.
+        # Scoped with party plus session (core-05).
+        self._apply_lawful_basis(vcon, recording_data, session_index=session_index)
+
+        if call is not None:
             declare_extension(vcon.vcon_dict, SIP_SIGNALING_EXTENSION)
             vcon.vcon_dict.setdefault("attachments", []).append(
                 {
                     "purpose": "sip-message-trace",
+                    "start": vcon.vcon_dict["created_at"],
                     "party": 0,
-                    "dialog": 0,
+                    "session": session_index,
                     "mediatype": "application/json",
                     "encoding": "json",
-                    "body": json.dumps(sip_signaling_attachment(session)),
+                    "body": json.dumps(sip_signaling_attachment(call)),
                 }
             )
 
-        self._attach_tenant(vcon, recording_data)
+        self._attach_tenant(vcon, recording_data, session_index)
         self._attach_screen_result(vcon, recording_data)
+
+        # Attachments the library built already carry party and scope; only
+        # `start` and `mediatype` are backfilled.
+        for attachment in vcon.vcon_dict.get("attachments", []):
+            attachment.setdefault("start", vcon.vcon_dict["created_at"])
+            if attachment.get("body") is not None:
+                attachment.setdefault("mediatype", "application/json")
 
         if not recording_data.from_number or not recording_data.to_number:
             logger.warning(
@@ -582,9 +672,18 @@ class TelnyxVconBuilder(BaseVconBuilder):
                 "consulted.",
                 vcon.uuid,
             )
+        logger.info(
+            "Created vCon %s from recording %s (from: %s, to: %s)",
+            vcon.uuid,
+            recording_data.recording_id,
+            recording_data.from_number,
+            recording_data.to_number,
+        )
         return vcon
 
-    def _attach_tenant(self, vcon, recording_data: BaseRecordingData) -> None:
+    def _attach_tenant(
+        self, vcon, recording_data: BaseRecordingData, session_index: int = 0
+    ) -> None:
         """Add the tenant attachment when a trusted relay named the call's tenant.
 
         The source is the `Annotation-tenant` form field, which also stays an
@@ -607,7 +706,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
         if addons_problem:
             logger.warning("vCon %s: %s", vcon.uuid, addons_problem)
         vcon.vcon_dict.setdefault("attachments", []).append(
-            tenant_attachment(tenant, vcon.created_at, addons)
+            tenant_attachment(tenant, vcon.created_at, addons, session=session_index)
         )
 
     def _attach_screen_result(self, vcon, recording_data: BaseRecordingData) -> None:
@@ -636,7 +735,9 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return
         vcon.add_analysis(dialog=0, encoding="json", body=body, **SCREEN_ANALYSIS)
 
-    def _apply_lawful_basis(self, vcon, recording_data: BaseRecordingData) -> None:
+    def _apply_lawful_basis(
+        self, vcon, recording_data: BaseRecordingData, session_index: int = 0
+    ) -> None:
         """The call's tenant's own basis when a trusted relay names the tenant, else as before.
 
         With no tenant (no field, an untrusted request, two tenants, or a value that is not a
@@ -656,7 +757,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
                     "vCon %s: basis fields came with no usable tenant, so they are ignored",
                     vcon.uuid,
                 )
-            super()._apply_lawful_basis(vcon, recording_data)
+            super()._apply_lawful_basis(vcon, recording_data, session_index=session_index)
             return
 
         if not relayed:
@@ -677,7 +778,93 @@ class TelnyxVconBuilder(BaseVconBuilder):
                 refused.reason,
             )
             return
-        basis.apply(vcon)
+        basis.apply(vcon, session_index=session_index)
+
+    @staticmethod
+    def _add_party_events(vcon: Vcon, call: CallSession, session_index: int, call_start: str):
+        """join on initiate and answer, drop for both parties at hangup.
+
+        Telnyx sends no hold webhook, so no hold/unhold Events are produced.
+        """
+        if call.start_time:
+            vcon.add_event(
+                Event(type="join", time=call.start_time, sessions=session_index, party=0)
+            )
+        if call.answered_at:
+            vcon.add_event(
+                Event(type="join", time=call.answered_at, sessions=session_index, party=1)
+            )
+        if call.end_time:
+            for party in (0, 1):
+                vcon.add_event(
+                    Event(type="drop", time=call.end_time, sessions=session_index, party=party)
+                )
+
+    @staticmethod
+    def _add_transfer_events(vcon: Vcon, call: CallSession, session_index: int, inbound: bool):
+        """One blind-transfer, or consultation-start plus consultative-transfer, per REFER.
+
+        The transferor is our side of the call: the callee on an inbound call,
+        the caller on an outbound one. The other original party is the transferee.
+        The target call and any consultation call are placeholder Sessions.
+        """
+        transferor, transferee = (1, 0) if inbound else (0, 1)
+        for transfer in call.transfers:
+            time = transfer.get("time") or call.answered_at or call.start_time
+            if not time:
+                logger.warning("Transfer with no time on call %s; skipped", call.call_session_id)
+                continue
+            target = transfer.get("target") or ""
+            vcon.add_party(Party(tel=target) if target else Party())
+            target_party = len(vcon.vcon_dict["parties"]) - 1
+            target_session = vcon.add_session(
+                Session(start=time, parties=[transferee, target_party])
+            )
+            consultation_id = transfer.get("consultation_call_session_id")
+            if consultation_id:
+                consult_start = transfer.get("consultation_started_at") or time
+                consultation = vcon.add_session(
+                    Session(
+                        start=consult_start,
+                        parties=[transferor, target_party],
+                        session_id={"local": consultation_id, "remote": consultation_id},
+                    )
+                )
+                vcon.add_event(
+                    Event(
+                        type="consultation-start",
+                        time=consult_start,
+                        sessions=session_index,
+                        party=transferor,
+                        transferee=transferee,
+                        transfer_target=target_party,
+                        consultation=consultation,
+                    )
+                )
+                vcon.add_event(
+                    Event(
+                        type="consultative-transfer",
+                        time=time,
+                        sessions=session_index,
+                        party=transferor,
+                        transferee=transferee,
+                        transfer_target=target_party,
+                        consultation=consultation,
+                        target_session=target_session,
+                    )
+                )
+            else:
+                vcon.add_event(
+                    Event(
+                        type="blind-transfer",
+                        time=time,
+                        sessions=session_index,
+                        party=transferor,
+                        transferee=transferee,
+                        transfer_target=target_party,
+                        target_session=target_session,
+                    )
+                )
 
     def _reference_url(self, recording_url: str) -> str:
         """Telnyx URLs are already per-format and pre-signed.
