@@ -54,7 +54,9 @@ def test_lawful_basis_emitted_when_configured(build):
     assert attachment["purpose"] == "lawful_basis"
     assert "type" not in attachment
     assert attachment["party"] == 0
-    assert attachment["dialog"] == 0
+    # Core-05 lawful basis: scoped to the call's Session, not to a Dialog.
+    assert attachment["session"] == 0
+    assert "dialog" not in attachment
     assert attachment["encoding"] == "json"
     assert attachment["mediatype"] == "application/json"
     # draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL `body: any`): for

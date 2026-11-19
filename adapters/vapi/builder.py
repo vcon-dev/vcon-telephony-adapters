@@ -10,8 +10,8 @@ the same conventions `BaseVconBuilder` uses: lawful basis is applied via
 `LawfulBasisConfig`, audio is re-hosted through the configured
 `AudioPublisher` rather than embedded when one is configured, `mediatype`
 (never `mimetype`) is used throughout, and every attachment gets the
-draft-04 required fields (`start`, `party`, `dialog`, and `mediatype` when a
-`body` is present) backfilled before the vCon is returned.
+core-05 required fields (`start`, `party`, a `session` scope, and `mediatype`
+when a `body` is present) backfilled before the vCon is returned.
 """
 
 from __future__ import annotations
@@ -28,7 +28,9 @@ from typing import Any
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
+from vcon.session import Session
 
+from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
@@ -94,6 +96,15 @@ class VapiVconBuilder:
 
             vcon.add_party(Party(name=self.customer_party_name, role="customer"))
             vcon.add_party(Party(name=self.agent_party_name, role="agent"))
+            # One Session per call (core-05); both parties receive it.
+            session_index = vcon.add_session(
+                Session(
+                    start=_epoch_ms_to_iso(vapi_message.get("startedAt"))
+                    or vapi_message.get("startedAt"),
+                    duration=vapi_message.get("durationSeconds"),
+                    parties=[0, 1],
+                )
+            )
 
             artifact = vapi_message.get("artifact") or {}
             for msg in artifact.get("messages", []) or []:
@@ -101,16 +112,17 @@ class VapiVconBuilder:
                 if role not in ("user", "bot"):
                     continue
                 start_iso = _epoch_ms_to_iso(msg.get("time"))
+                # The speaker is the message's only contributor.
                 vcon.add_dialog(
                     Dialog(
                         type="text",
                         start=start_iso,
-                        parties=[0, 1],
-                        originator=0 if role == "user" else 1,
+                        parties=[0 if role == "user" else 1],
                         body=msg.get("message", ""),
                         encoding="none",
                         mediatype="text/plain",
-                    )
+                    ),
+                    session=session_index,
                 )
                 _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
@@ -161,30 +173,23 @@ class VapiVconBuilder:
                     body=json.dumps(call_record),
                     encoding="json",
                     party=0,
-                    dialog=0,
+                    session=session_index,
                 )
 
             vcon.add_tag("source", self.ADAPTER_SOURCE)
             if call_id:
                 vcon.add_tag("call_id", call_id)
 
-            if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+            if self.lawful_basis is None or not self.lawful_basis.apply(
+                vcon, session_index=session_index
+            ):
                 logger.warning(
                     "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
                     "before handling real conversations.",
                     vcon.uuid,
                 )
 
-            # Backfill draft-04 required attachment fields the library
-            # doesn't set on its own (see core.base_builder.build for the
-            # equivalent, kept in step with it here since this builder
-            # doesn't subclass BaseVconBuilder).
-            for attachment in vcon.vcon_dict.get("attachments", []):
-                attachment.setdefault("start", vcon.created_at)
-                attachment.setdefault("party", 0)
-                attachment.setdefault("dialog", 0)
-                if attachment.get("body") is not None:
-                    attachment.setdefault("mediatype", "application/json")
+            scope_attachments(vcon, session_index)
 
             return vcon
 
@@ -237,7 +242,7 @@ class VapiVconBuilder:
         else:
             dialog_kwargs["url"] = recording_url
 
-        vcon.add_dialog(Dialog(**dialog_kwargs))
+        vcon.add_dialog(Dialog(**dialog_kwargs), session=0)
         _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
     @staticmethod

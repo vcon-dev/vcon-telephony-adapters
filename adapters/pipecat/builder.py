@@ -8,7 +8,7 @@ conversation ends. As with the VAPI adapter, this doesn't fit
 is written directly against vcon-lib but follows the same conventions:
 `LawfulBasisConfig` for the lawful-basis attachment, the configured
 `AudioPublisher` for re-hosting captured audio instead of always embedding
-it, `mediatype` throughout, and the draft-04 attachment-field backfill.
+it, `mediatype` throughout, and the core-05 attachment-field backfill.
 """
 
 from __future__ import annotations
@@ -26,7 +26,9 @@ from typing import Literal
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
+from vcon.session import Session
 
+from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
 from core.media_publisher import AudioPublisher, PublishingError
@@ -92,21 +94,32 @@ class PipecatVconBuilder:
         agent_kwargs = state.agent_party or {"name": "Agent", "role": "agent"}
         vcon.add_party(Party(**user_kwargs))
         vcon.add_party(Party(**agent_kwargs))
+        # One Session per conversation (core-05); both parties receive it.
+        session_index = vcon.add_session(
+            Session(
+                start=state.started_at,
+                duration=(
+                    (state.ended_at - state.started_at).total_seconds() if state.ended_at else None
+                ),
+                parties=[0, 1],
+            )
+        )
 
         for turn in state.turns:
+            # The speaker is the turn's only contributor.
             vcon.add_dialog(
                 Dialog(
                     type="text",
                     start=turn.start_time,
-                    parties=[0, 1],
-                    originator=0 if turn.role == "user" else 1,
+                    parties=[0 if turn.role == "user" else 1],
                     body=turn.text,
                     encoding="none",
                     mediatype="text/plain",
                     duration=(
                         (turn.end_time - turn.start_time).total_seconds() if turn.end_time else None
                     ),
-                )
+                ),
+                session=session_index,
             )
             _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
@@ -121,7 +134,7 @@ class PipecatVconBuilder:
             body=json.dumps(body),
             encoding="json",
             party=0,
-            dialog=0,
+            session=session_index,
         )
 
         vcon.add_tag("source", self.ADAPTER_SOURCE)
@@ -129,19 +142,16 @@ class PipecatVconBuilder:
         for tag in state.tags:
             vcon.add_tag("user_tag", tag)
 
-        if self.lawful_basis is None or not self.lawful_basis.apply(vcon):
+        if self.lawful_basis is None or not self.lawful_basis.apply(
+            vcon, session_index=session_index
+        ):
             logger.warning(
                 "vCon %s carries no lawful_basis attachment. Set LAWFUL_BASIS "
                 "before handling real conversations.",
                 vcon.uuid,
             )
 
-        for attachment in vcon.vcon_dict.get("attachments", []):
-            attachment.setdefault("start", vcon.created_at)
-            attachment.setdefault("party", 0)
-            attachment.setdefault("dialog", 0)
-            if attachment.get("body") is not None:
-                attachment.setdefault("mediatype", "application/json")
+        scope_attachments(vcon, session_index)
 
         return vcon
 
@@ -178,7 +188,7 @@ class PipecatVconBuilder:
             dialog_kwargs["content_hash"] = _sha512_content_hash(state.audio_bytes)
             dialog_kwargs["filename"] = filename
 
-        vcon.add_dialog(Dialog(**dialog_kwargs))
+        vcon.add_dialog(Dialog(**dialog_kwargs), session=0)
         _strip_empty_placeholders(vcon.vcon_dict["dialog"][-1])
 
     def _publish(self, audio_bytes: bytes, filename: str) -> tuple[str, str] | None:

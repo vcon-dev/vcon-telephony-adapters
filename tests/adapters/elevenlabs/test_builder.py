@@ -49,8 +49,12 @@ class TestElevenLabsBuilderTranscription:
 
         text_dialogs = [d for d in vcon.vcon_dict["dialog"] if d.get("type") == "text"]
         assert len(text_dialogs) == 2
-        assert text_dialogs[0]["originator"] == 1  # agent
-        assert text_dialogs[1]["originator"] == 0  # user
+        # Core-05: the speaker is the only contributor; both receive it on the Session.
+        assert text_dialogs[0]["parties"] == [1]  # agent
+        assert text_dialogs[1]["parties"] == [0]  # user
+        assert all("originator" not in d for d in text_dialogs)
+        assert vcon.vcon_dict["sessions"][0]["parties"] == [0, 1]
+        assert vcon.vcon_dict["sessions"][0]["dialog"] == list(range(len(vcon.vcon_dict["dialog"])))
 
     def test_analysis_entries(self):
         builder = ElevenLabsVconBuilder()

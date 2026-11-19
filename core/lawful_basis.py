@@ -112,33 +112,27 @@ class LawfulBasisConfig:
         self,
         vcon: Vcon,
         party_index: int = 0,
-        dialog_index: int | None = 0,
-        session_index: int | list[int] | None = None,
+        session_index: int | list[int] | None = 0,
+        dialog_index: int | None = None,
     ) -> bool:
         """Attach the configured basis. Returns False when none is configured.
 
         Delegates to `vcon-lib`, which owns the shape its own validator and
-        finder expect. Under draft-ietf-vcon-vcon-core-04 §2.3.2 (CDDL
-        `body: any`), `body` for `encoding: "json"` is the JSON value itself,
-        not a `json.dumps` string — so vcon-lib 0.9.6's object body is
-        correct as-is and is left untouched. (An earlier revision of this
-        method stringified it against a stale schema fork that typed `body`
-        as a string; that was wrong for -04 and has been reverted.)
+        finder expect. Under draft-ietf-vcon-vcon-core-05 §2.3.2, `body` for
+        `encoding: "json"` is the JSON value itself, not a `json.dumps`
+        string, so the library's object body is correct as-is and is left
+        untouched.
 
-        Every adapter here produces exactly one dialog and references party 0
-        as the recording's subject, so `party`/`dialog` default to 0 rather
-        than being left off. `mediatype` is required whenever `body` is
-        present (-04's Attachment Object); vcon-lib does not set it, so it is
-        added here.
+        Core-05 (syntax 0.5.0) and the core-05 lawful basis draft scope a basis
+        that covers the whole call with `party` plus `session`. Every adapter
+        here builds one Session per call and references party 0 as the
+        recording's subject, so `party`/`session` default to 0 rather than
+        being left off. A basis for one Dialog only may pass `dialog_index`
+        with `session_index=None`. `mediatype` is required whenever `body` is
+        present; vcon-lib does not set it, so it is added here.
         """
         if not self.enabled:
             return False
-
-        # core-05 (syntax 0.5.0) scopes the basis with `party` plus `session`.
-        # Pass `session_index` and the dialog scope is dropped; the 0.4.0 path
-        # keeps its `dialog_index`.
-        if session_index is not None:
-            dialog_index = None
 
         from datetime import datetime, timezone
 

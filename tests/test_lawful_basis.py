@@ -6,13 +6,19 @@ in this monorepo produced asserted a legal basis for its own existence.
 
 import pytest
 from vcon import Vcon
+from vcon.party import Party
+from vcon.session import Session
 
 from core.base_config import BaseConfig
 from core.lawful_basis import VALID_LAWFUL_BASES, LawfulBasisConfig
 
 
 def fresh_vcon():
-    return Vcon.build_new()
+    """A core-05 vCon with the one Session every adapter here builds per call."""
+    vcon = Vcon.build_new()
+    vcon.add_party(Party(tel="+15550100001"))
+    vcon.add_session(Session(start="2026-11-18T00:00:00+00:00", parties=[0]))
+    return vcon
 
 
 def body_of(attachment: dict) -> dict:
@@ -72,7 +78,8 @@ def test_emitted_attachment_is_found_by_the_library():
     assert len(found) == 1
     assert body_of(found[0])["lawful_basis"] == "consent"
     assert found[0]["party"] == 0
-    assert found[0]["dialog"] == 0
+    assert found[0]["session"] == 0
+    assert "dialog" not in found[0]
     assert found[0]["encoding"] == "json"
     assert found[0]["mediatype"] == "application/json"
 

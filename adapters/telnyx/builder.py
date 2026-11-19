@@ -10,7 +10,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
-
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.event import Event
@@ -579,7 +578,9 @@ class TelnyxVconBuilder(BaseVconBuilder):
         try:
             return self._build_core_05(recording_data)
         except Exception as exc:  # noqa: BLE001 - one bad call must not kill the webhook
-            logger.error("Error building vCon from recording %s: %s", recording_data.recording_id, exc)
+            logger.error(
+                "Error building vCon from recording %s: %s", recording_data.recording_id, exc
+            )
             return None
 
     def _build_core_05(self, recording_data: BaseRecordingData):
@@ -735,7 +736,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
         vcon.add_analysis(dialog=0, encoding="json", body=body, **SCREEN_ANALYSIS)
 
     def _apply_lawful_basis(
-        self, vcon, recording_data: BaseRecordingData, session_index: int | None = None
+        self, vcon, recording_data: BaseRecordingData, session_index: int = 0
     ) -> None:
         """The call's tenant's own basis when a trusted relay names the tenant, else as before.
 
@@ -786,9 +787,13 @@ class TelnyxVconBuilder(BaseVconBuilder):
         Telnyx sends no hold webhook, so no hold/unhold Events are produced.
         """
         if call.start_time:
-            vcon.add_event(Event(type="join", time=call.start_time, sessions=session_index, party=0))
+            vcon.add_event(
+                Event(type="join", time=call.start_time, sessions=session_index, party=0)
+            )
         if call.answered_at:
-            vcon.add_event(Event(type="join", time=call.answered_at, sessions=session_index, party=1))
+            vcon.add_event(
+                Event(type="join", time=call.answered_at, sessions=session_index, party=1)
+            )
         if call.end_time:
             for party in (0, 1):
                 vcon.add_event(

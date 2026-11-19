@@ -11,6 +11,7 @@ from typing import Any
 from vcon import Vcon
 from vcon.dialog import Dialog
 from vcon.party import Party
+from vcon.session import Session
 
 from .encoding import base64url_encode
 from .lawful_basis import LawfulBasisConfig
@@ -24,6 +25,25 @@ MIME_TYPES = {
     "wav": "audio/wav",
     "mp3": "audio/mpeg",
 }
+
+
+def scope_attachments(vcon: Vcon, session_index: int = 0) -> None:
+    """Backfill what core-05 section 4.6 requires on every attachment.
+
+    `start` and `party` are always required, and `dialog` or `session`. Neither the
+    library's `add_tag()` nor a hand-built attachment sets all of them, so each one gets
+    `created_at` as its `start` (when this vCon, and every attachment on it, was produced),
+    party 0, and the call's Session when it names no scope. Every attachment here is
+    `encoding: "json"`, so a body gets `application/json`. Existing values are never
+    overwritten.
+    """
+    for attachment in vcon.vcon_dict.get("attachments", []):
+        attachment.setdefault("start", vcon.created_at)
+        attachment.setdefault("party", 0)
+        if "dialog" not in attachment and "session" not in attachment:
+            attachment["session"] = session_index
+        if attachment.get("body") is not None:
+            attachment.setdefault("mediatype", "application/json")
 
 
 class BaseRecordingData(ABC):
@@ -183,14 +203,13 @@ class BaseVconBuilder(ABC):
         self,
         vcon: Vcon,
         recording_data: BaseRecordingData,
-        session_index: int | None = None,
+        session_index: int = 0,
     ) -> None:
         """Why we are entitled to hold this recording: the deployment's configured basis.
 
         Emitted only when a deployment configured a basis; never invented on its behalf.
         A subclass may choose a per-call basis instead (the Telnyx adapter does, for a call
-        whose tenant a trusted relay names). `session_index` scopes it to a core-05 Session;
-        without one it keeps the 0.4.0 dialog scope.
+        whose tenant a trusted relay names). It is scoped to the call's Session.
         """
         if self.lawful_basis is None or not self.lawful_basis.apply(
             vcon, session_index=session_index
@@ -281,19 +300,24 @@ class BaseVconBuilder(ABC):
             vcon.add_party(caller_party)
             vcon.add_party(callee_party)
 
-            # Determine who initiated based on direction
+            # One Session per call (core-05): every party receives it, and the
+            # originator is named only when it is not the first party.
             originator = self._determine_originator(recording_data.direction)
+            session_index = vcon.add_session(
+                Session(
+                    start=start_time,
+                    duration=recording_data.duration_seconds,
+                    parties=[0, 1],
+                    originator=originator if originator != 0 else None,
+                )
+            )
 
-            # Build dialog
+            # Build dialog. Both parties contribute to the recording.
             mime_type = MIME_TYPES.get(self.recording_format, "audio/wav")
             dialog_kwargs: dict[str, Any] = {
                 "type": "recording",
                 "start": start_time,
                 "parties": [0, 1],
-                # `mediatype` is the spec field (draft-ietf-vcon-vcon-core-02).
-                # `mimetype` is not, so it landed as an unknown extra key while
-                # `mediatype` stayed absent, and vcon-lib's own validator
-                # rejects a dialog without it.
                 "mediatype": mime_type,
             }
 
@@ -303,15 +327,7 @@ class BaseVconBuilder(ABC):
 
             filename = f"{recording_data.recording_id}.{self.recording_format}"
             self._add_media(dialog_kwargs, recording_data, filename)
-
-            # Create dialog
-            dialog = Dialog(**dialog_kwargs)
-            dialog_index = vcon.add_dialog(dialog)
-            # vcon-lib 1.0 refuses `originator` on a Dialog (core-05 moved it to
-            # the Session). Adapters not yet ported keep the 0.4.0 shape, so it is
-            # written to the stored dict directly.
-            vcon.vcon_dict["dialog"][dialog_index]["originator"] = originator
-            vcon.vcon_dict["vcon"] = "0.4.0"
+            vcon.add_dialog(Dialog(**dialog_kwargs), session=session_index)
 
             # Add source tag
             vcon.add_tag("source", self.ADAPTER_SOURCE)
@@ -320,27 +336,8 @@ class BaseVconBuilder(ABC):
             for tag_name, tag_value in recording_data.platform_tags.items():
                 vcon.add_tag(tag_name, tag_value)
 
-            self._apply_lawful_basis(vcon, recording_data)
-
-            # The official schema (draft-ietf-vcon-vcon-core-04, Attachment
-            # Object) requires `start`, `party`, and `dialog` on every
-            # attachment, and `mediatype` whenever `body` is present. Neither
-            # vcon-lib's own `add_tag()` (the tags attachment above) nor its
-            # own validator enforces any of that, so every attachment this
-            # builder produces gets backfilled here rather than leaving a
-            # schema-invalid vCon. `created_at` is when this vCon, and every
-            # attachment on it, was produced, which is what "sent/exchanged"
-            # means for a tag or a lawful basis record; every attachment here
-            # is `encoding: "json"`, so `application/json` is always the
-            # right mediatype. Existing values are never overwritten (the
-            # lawful_basis attachment already sets its own party/dialog and
-            # mediatype).
-            for attachment in vcon.vcon_dict.get("attachments", []):
-                attachment.setdefault("start", vcon.created_at)
-                attachment.setdefault("party", 0)
-                attachment.setdefault("dialog", 0)
-                if attachment.get("body") is not None:
-                    attachment.setdefault("mediatype", "application/json")
+            self._apply_lawful_basis(vcon, recording_data, session_index=session_index)
+            scope_attachments(vcon, session_index)
 
             logger.info(
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "
