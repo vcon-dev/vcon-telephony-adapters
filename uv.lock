@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -815,12 +815,6 @@ wheels = [
 ]
 
 [[package]]
-name = "logger"
-version = "1.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/73/2f/b0d28eaa1e2c1cf64129f8da3fe701888d152677fec708cd0f13e8309e1e/logger-1.4.tar.gz", hash = "sha256:4ecac57133c6376fa215f0fe6b4dc4d60e4d1ad8be005cab4e8a702df682f8b3", size = 1187, upload-time = "2013-10-22T16:49:01.48Z" }
-
-[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1570,26 +1564,25 @@ wheels = [
 
 [[package]]
 name = "vcon"
-version = "0.10.0"
+version = "1.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
     { name = "ffmpeg" },
-    { name = "logger" },
     { name = "mutagen" },
     { name = "pydash" },
     { name = "python-dateutil" },
     { name = "requests" },
     { name = "uuid6" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/9c/4b649e8dd8d305428f7953c2308b2e0af01ff12441e6556b207fb20e85ad/vcon-0.10.0.tar.gz", hash = "sha256:87c5603e7e5e8adf51e3891d0f5bc4f64d4ee39a3c7e8f5bbf48b4a134f19d9d", size = 64117, upload-time = "2026-09-26T21:48:28.016Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/81/1c435ee883ffffc57497daf9f71ea1868a81b2a4a4c09422d2c9d780006e/vcon-1.0.3.tar.gz", hash = "sha256:ff1a2c0e0d718820b9988005ee7751f55b1f090f16d37d0b0ddac2e7787f2734", size = 97604, upload-time = "2026-11-18T23:42:47.174Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/7e/7cf349292c60a846f959a13f3af97e9262d97483584233ed3f287a2b5cce/vcon-0.10.0-py3-none-any.whl", hash = "sha256:5d95a87f0e394423c5c49ce7df1aca4b3e94c7ef9ae8249293b65aa79d7cb89b", size = 71761, upload-time = "2026-09-26T21:48:26.14Z" },
+    { url = "https://files.pythonhosted.org/packages/64/aa/3ab8b2d0ffd978bab2c280356949fffe4006be8cfb55adb7b957879b91cb/vcon-1.0.3-py3-none-any.whl", hash = "sha256:28de362508aa64f3fd92ebd3372bd185da50f1c76f20655fb5b8e67adbe29fa0", size = 105450, upload-time = "2026-11-18T23:42:46.136Z" },
 ]
 
 [[package]]
 name = "vcon-telephony-adapters"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -1646,7 +1639,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "twilio", specifier = ">=8.0.0" },
     { name = "uvicorn", specifier = ">=0.23.0" },
-    { name = "vcon", specifier = ">=0.10.0,<1" },
+    { name = "vcon", specifier = ">=1.0.3,<2" },
     { name = "vcon-telephony-adapters", extras = ["s3", "dev"], marker = "extra == 'all'" },
 ]
 provides-extras = ["s3", "dev", "all"]

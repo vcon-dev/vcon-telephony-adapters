@@ -53,7 +53,9 @@ from .tenant_cases import (
 TOKEN = "synthetic-callback-token"
 BASIS_TAG = "annotation_basis_"
 PROOF_KEYS = ("evidence", "checked_by")  # also in the proof's proof_data
-WG_SCHEMA = json.loads((Path(__file__).parents[2] / "schema" / "vcon_json_schema.json").read_text())
+WG_SCHEMA = json.loads(
+    (Path(__file__).parents[2] / "schema" / "vcon-core-05-appendix-c-json-schema.json").read_text()
+)
 GLOBAL_VALUES = ("legitimate_interests", "Synthetic global justification.", "2099")
 REFUSED = "the tenant's relayed lawful basis is refused"
 NO_BASIS = "the relay sent no lawful basis for the call's tenant"
@@ -113,7 +115,7 @@ def _expected(basis, start):
         "encoding": "json",
         "body": body,
         "party": 0,
-        "dialog": 0,
+        "session": 0,
         "mediatype": "application/json",
         "start": start,
     }
