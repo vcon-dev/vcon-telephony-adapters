@@ -11,6 +11,7 @@ Supports running individual adapters via command line argument:
     python main.py pipecat     # Run Pipecat adapter (health check only; see adapters/pipecat)
     python main.py elevenlabs  # Run ElevenLabs adapter
     python main.py signalwire  # Run SignalWire adapter (poller)
+    python main.py dialpad     # Run Dialpad adapter
     python main.py             # Default: Run Twilio adapter
 """
 
@@ -260,6 +261,30 @@ def run_signalwire_adapter():
     uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
 
 
+def run_dialpad_adapter():
+    """Run the Dialpad adapter."""
+    from adapters.dialpad import DialpadConfig, create_app
+
+    # Load configuration
+    config = DialpadConfig()
+
+    # Setup logging
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Starting vCon Dialpad Adapter...")
+    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Update on later events: {config.update_on_later_events}")
+    logger.info(f"Webhook validation: {config.validate_webhook}")
+
+    # Create FastAPI app
+    app = create_app(config)
+
+    # Run server
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
 # Registry of available adapters
 ADAPTERS = {
     "twilio": run_twilio_adapter,
@@ -271,6 +296,7 @@ ADAPTERS = {
     "pipecat": run_pipecat_adapter,
     "elevenlabs": run_elevenlabs_adapter,
     "signalwire": run_signalwire_adapter,
+    "dialpad": run_dialpad_adapter,
 }
 
 

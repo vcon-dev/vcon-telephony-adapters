@@ -50,3 +50,12 @@ services:
   #   ports:
   #     - "8084:8080"
   #   restart: unless-stopped
+
+  # dialpad:
+  #   build: .
+  #   image: vcon-telephony-adapters:local
+  #   command: ["dialpad"]
+  #   env_file: .env
+  #   ports:
+  #     - "8085:8080"
+  #   restart: unless-stopped
