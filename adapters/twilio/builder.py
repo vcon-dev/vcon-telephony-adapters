@@ -8,6 +8,7 @@ import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -192,12 +193,13 @@ class TwilioVconBuilder(BaseVconBuilder):
                 return response.content
             else:
                 logger.error(
-                    f"Failed to download recording from {url}: " f"status {response.status_code}"
+                    f"Failed to download recording from {redact_url(url)}: "
+                    f"status {response.status_code}"
                 )
                 return None
 
         except Exception as e:
-            logger.error(f"Error downloading recording from {url}: {e}")
+            logger.error(f"Error downloading recording from {redact_url(url)}: {redact_text(e)}")
             return None
 
 

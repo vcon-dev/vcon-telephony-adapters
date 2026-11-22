@@ -33,6 +33,7 @@ from vcon.session import Session
 from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ class VapiVconBuilder:
             return vcon
 
         except Exception as e:  # noqa: BLE001 - a build failure must not crash the webhook
-            logger.error(f"Error building VAPI vCon: {e}")
+            logger.error(f"Error building VAPI vCon: {redact_text(e)}")
             return None
 
     def _add_recording_dialog(self, vcon: Vcon, vapi_message: dict[str, Any]) -> None:
@@ -254,7 +255,7 @@ class VapiVconBuilder:
             response.raise_for_status()
             return response.content
         except requests.RequestException as e:
-            logger.error(f"Failed to download VAPI recording: {e}")
+            logger.error(f"Failed to download VAPI recording: {redact_text(e)}")
             return None
 
     def _download_and_publish(self, recording_url: str, filename: str) -> tuple[str, str] | None:
@@ -269,7 +270,7 @@ class VapiVconBuilder:
             published = self.publisher.publish(tmp_path, filename)
             return published.url, published.content_hash
         except PublishingError as exc:
-            logger.error(f"Publishing VAPI recording failed: {exc}")
+            logger.error(f"Publishing VAPI recording failed: {redact_text(exc)}")
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

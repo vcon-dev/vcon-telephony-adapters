@@ -13,6 +13,8 @@ from vcon.dialog import Dialog
 from vcon.party import Party
 from vcon.session import Session
 
+from core.log_safe import mask_number, redact_text, redact_url
+
 from .encoding import base64url_encode
 from .lawful_basis import LawfulBasisConfig
 from .media_publisher import AudioPublisher, PublishedAudio
@@ -180,7 +182,7 @@ class BaseVconBuilder(ABC):
                 "Published %s (%d bytes) to %s",
                 recording_data.recording_id,
                 len(audio_data),
-                published.url.split("?", 1)[0],
+                redact_url(published.url),
             )
             return published
         except Exception as exc:  # noqa: BLE001 - publishing must not kill the vCon
@@ -341,11 +343,15 @@ class BaseVconBuilder(ABC):
 
             logger.info(
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "
-                f"(from: {recording_data.from_number}, to: {recording_data.to_number})"
+                f"(from: {mask_number(recording_data.from_number)}, "
+                f"to: {mask_number(recording_data.to_number)})"
             )
 
             return vcon
 
         except Exception as e:
-            logger.error(f"Error building vCon from recording {recording_data.recording_id}: {e}")
+            logger.error(
+                f"Error building vCon from recording {recording_data.recording_id}: "
+                f"{redact_text(e)}"
+            )
             return None

@@ -31,6 +31,7 @@ from vcon.session import Session
 from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
@@ -199,7 +200,7 @@ class PipecatVconBuilder:
             published = self.publisher.publish(tmp_path, filename)
             return published.url, published.content_hash
         except PublishingError as exc:
-            logger.error(f"Publishing Pipecat audio failed: {exc}")
+            logger.error(f"Publishing Pipecat audio failed: {redact_text(exc)}")
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -19,6 +19,8 @@ import sys
 
 import uvicorn
 
+from core.log_safe import redact_url, uvicorn_log_config
+
 
 def setup_logging(level: str = "INFO"):
     """Configure logging for the application.
@@ -44,7 +46,7 @@ def run_twilio_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon Twilio Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
     logger.info(f"Twilio signature validation: {config.validate_twilio_signature}")
     logger.info(f"Download recordings: {config.download_recordings}")
     logger.info(f"Recording format: {config.recording_format}")
@@ -54,7 +56,13 @@ def run_twilio_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_freeswitch_adapter():
@@ -69,7 +77,7 @@ def run_freeswitch_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon FreeSWITCH Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
     logger.info(f"Recordings path: {config.recordings_path}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
     logger.info(f"Download recordings: {config.download_recordings}")
@@ -80,7 +88,13 @@ def run_freeswitch_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_asterisk_adapter():
@@ -95,8 +109,8 @@ def run_asterisk_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon Asterisk Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
-    logger.info(f"ARI URL: {config.asterisk_ari_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
+    logger.info(f"ARI URL: {redact_url(config.asterisk_ari_url)}")
     logger.info(f"Recordings path: {config.recordings_path}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
     logger.info(f"Download recordings: {config.download_recordings}")
@@ -107,7 +121,13 @@ def run_asterisk_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_telnyx_adapter():
@@ -122,8 +142,8 @@ def run_telnyx_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon Telnyx Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
-    logger.info(f"Telnyx API URL: {config.telnyx_api_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
+    logger.info(f"Telnyx API URL: {redact_url(config.telnyx_api_url)}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
     logger.info(f"Download recordings: {config.download_recordings}")
     logger.info(f"Recording format: {config.recording_format}")
@@ -133,7 +153,13 @@ def run_telnyx_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_bandwidth_adapter():
@@ -148,8 +174,8 @@ def run_bandwidth_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon Bandwidth Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
-    logger.info(f"Bandwidth Voice API: {config.bandwidth_voice_api_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
+    logger.info(f"Bandwidth Voice API: {redact_url(config.bandwidth_voice_api_url)}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
     logger.info(f"Download recordings: {config.download_recordings}")
     logger.info(f"Recording format: {config.recording_format}")
@@ -159,7 +185,13 @@ def run_bandwidth_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_vapi_adapter():
@@ -174,7 +206,7 @@ def run_vapi_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon VAPI Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
     logger.info(f"Download recordings: {config.download_recordings}")
 
@@ -183,7 +215,13 @@ def run_vapi_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_pipecat_adapter():
@@ -204,14 +242,20 @@ def run_pipecat_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon Pipecat Adapter (health check only; see adapters/pipecat)...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
 
     # Create FastAPI app
     app = create_app(config)
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_elevenlabs_adapter():
@@ -226,7 +270,7 @@ def run_elevenlabs_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon ElevenLabs Adapter...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
     logger.info(f"Webhook validation: {config.validate_webhook}")
 
     # Create FastAPI app
@@ -234,7 +278,13 @@ def run_elevenlabs_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_signalwire_adapter():
@@ -249,7 +299,7 @@ def run_signalwire_adapter():
     logger = logging.getLogger(__name__)
 
     logger.info("Starting vCon SignalWire Adapter (polling)...")
-    logger.info(f"Conserver URL: {config.conserver_url}")
+    logger.info(f"Conserver URL: {redact_url(config.conserver_url)}")
     logger.info(f"Poll interval: {config.poll_interval_seconds}s")
 
     # Create FastAPI app
@@ -257,7 +307,13 @@ def run_signalwire_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 # Registry of available adapters
