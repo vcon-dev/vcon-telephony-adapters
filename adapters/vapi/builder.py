@@ -33,6 +33,7 @@ from vcon.session import Session
 from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
@@ -254,7 +255,7 @@ class VapiVconBuilder:
             response.raise_for_status()
             return response.content
         except requests.RequestException as e:
-            logger.error(f"Failed to download VAPI recording: {e}")
+            logger.error(f"Failed to download VAPI recording: {redact_text(e)}")
             return None
 
     def _download_and_publish(self, recording_url: str, filename: str) -> tuple[str, str] | None:

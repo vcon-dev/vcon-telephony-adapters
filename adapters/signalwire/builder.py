@@ -37,6 +37,7 @@ from vcon.session import Session
 
 from core.base_builder import scope_attachments
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
@@ -256,7 +257,7 @@ class SignalWireVconBuilder:
             response.raise_for_status()
             audio_bytes = response.content
         except requests.RequestException as e:
-            logger.error(f"Failed to download SignalWire recording: {e}")
+            logger.error(f"Failed to download SignalWire recording: {redact_text(e)}")
             return None
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="vcon-media-"))

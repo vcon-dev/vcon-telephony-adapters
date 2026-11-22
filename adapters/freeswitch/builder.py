@@ -9,6 +9,7 @@ import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -186,12 +187,12 @@ class FreeSwitchVconBuilder(BaseVconBuilder):
         recording_url = fs_data.recording_url
         if recording_url and recording_url.startswith(("http://", "https://")):
             try:
-                logger.debug(f"Downloading recording from URL: {recording_url}")
+                logger.debug(f"Downloading recording from URL: {redact_url(recording_url)}")
                 response = requests.get(recording_url, timeout=60)
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as e:
-                logger.warning(f"Failed to download from URL: {e}")
+                logger.warning(f"Failed to download from URL: {redact_text(e)}")
 
         # Try local file path
         file_path = fs_data.recording_file_path
@@ -217,12 +218,12 @@ class FreeSwitchVconBuilder(BaseVconBuilder):
             filename = os.path.basename(recording_url)
             full_url = f"{self.recordings_url_base.rstrip('/')}/{filename}"
             try:
-                logger.debug(f"Trying constructed URL: {full_url}")
+                logger.debug(f"Trying constructed URL: {redact_url(full_url)}")
                 response = requests.get(full_url, timeout=60)
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as e:
-                logger.warning(f"Failed to download from constructed URL: {e}")
+                logger.warning(f"Failed to download from constructed URL: {redact_text(e)}")
 
         logger.error(f"Could not access recording for {fs_data.recording_id}")
         return None

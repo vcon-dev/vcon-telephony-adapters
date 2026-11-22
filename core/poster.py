@@ -5,6 +5,8 @@ import logging
 import requests
 from vcon import Vcon
 
+from core.log_safe import redact_text, redact_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,11 +41,11 @@ class HttpPoster:
             if self.ingress_lists:
                 params["ingress_lists"] = ",".join(self.ingress_lists)
                 logger.info(
-                    f"Posting vCon {vcon.uuid} to {url} "
+                    f"Posting vCon {vcon.uuid} to {redact_url(url)} "
                     f"with ingress_lists: {', '.join(self.ingress_lists)}"
                 )
             else:
-                logger.info(f"Posting vCon {vcon.uuid} to {url}")
+                logger.info(f"Posting vCon {vcon.uuid} to {redact_url(url)}")
 
             # Convert vCon to JSON
             vcon_json = vcon.to_json()
@@ -56,7 +58,7 @@ class HttpPoster:
             # Check if response indicates success
             if 200 <= response.status_code < 300:
                 logger.info(
-                    f"Successfully posted vCon {vcon.uuid} " f"(status: {response.status_code})"
+                    f"Successfully posted vCon {vcon.uuid} (status: {response.status_code})"
                 )
                 return True
             else:
@@ -67,5 +69,7 @@ class HttpPoster:
                 return False
 
         except Exception as e:
-            logger.error(f"Error posting vCon {vcon.uuid} to {self.url}: {e}")
+            logger.error(
+                f"Error posting vCon {vcon.uuid} to {redact_url(self.url)}: {redact_text(e)}"
+            )
             return False

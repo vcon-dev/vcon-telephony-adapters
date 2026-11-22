@@ -10,6 +10,7 @@ from requests.auth import HTTPBasicAuth
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -221,25 +222,25 @@ class AsteriskVconBuilder(BaseVconBuilder):
         if self.ari_url and ast_data.recording_id:
             try:
                 url = f"{self.ari_url}/recordings/stored/{ast_data.recording_id}/file"
-                logger.debug(f"Downloading recording from ARI: {url}")
+                logger.debug(f"Downloading recording from ARI: {redact_url(url)}")
 
                 auth = HTTPBasicAuth(*self.ari_auth) if self.ari_auth else None
                 response = requests.get(url, auth=auth, timeout=60)
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as e:
-                logger.warning(f"Failed to download from ARI: {e}")
+                logger.warning(f"Failed to download from ARI: {redact_text(e)}")
 
         # Try HTTP URL if provided
         recording_url = ast_data.recording_url
         if recording_url.startswith(("http://", "https://")):
             try:
-                logger.debug(f"Downloading recording from URL: {recording_url}")
+                logger.debug(f"Downloading recording from URL: {redact_url(recording_url)}")
                 response = requests.get(recording_url, timeout=60)
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as e:
-                logger.warning(f"Failed to download from URL: {e}")
+                logger.warning(f"Failed to download from URL: {redact_text(e)}")
 
         # Try local file path
         file_path = ast_data.recording_file_path

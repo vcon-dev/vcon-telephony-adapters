@@ -18,6 +18,7 @@ from vcon.session import Session
 
 from core.base_builder import MIME_TYPES, BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig, RelayedBasisError, RelayedLawfulBasis
+from core.log_safe import mask_number, redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 from .call_session import (
@@ -579,7 +580,9 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return self._build_core_05(recording_data)
         except Exception as exc:  # noqa: BLE001 - one bad call must not kill the webhook
             logger.error(
-                "Error building vCon from recording %s: %s", recording_data.recording_id, exc
+                "Error building vCon from recording %s: %s",
+                recording_data.recording_id,
+                redact_text(exc),
             )
             return None
 
@@ -676,8 +679,8 @@ class TelnyxVconBuilder(BaseVconBuilder):
             "Created vCon %s from recording %s (from: %s, to: %s)",
             vcon.uuid,
             recording_data.recording_id,
-            recording_data.from_number,
-            recording_data.to_number,
+            mask_number(recording_data.from_number),
+            mask_number(recording_data.to_number),
         )
         return vcon
 
@@ -898,7 +901,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return None
 
         try:
-            logger.debug(f"Downloading recording from: {recording_url}")
+            logger.debug(f"Downloading recording from: {redact_url(recording_url)}")
 
             # Telnyx hands back a **pre-signed S3 URL**, not a Telnyx-hosted one.
             # Two reasons never to attach the bearer token to it:
@@ -917,5 +920,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return response.content
 
         except requests.RequestException as e:
-            logger.error(f"Failed to download Telnyx recording {telnyx_data.recording_id}: {e}")
+            logger.error(
+                f"Failed to download Telnyx recording {telnyx_data.recording_id}: {redact_text(e)}"
+            )
             return None
