@@ -259,3 +259,53 @@ class TestPosterBody:
             assert poster.post(vcon) is False
         assert "status: 422" in _own_log(caplog)
         _assert_clean(_own_log(caplog))
+
+
+class TestRedactTextReviewFixes:
+    def test_ipv6_host_with_port_loses_query(self):
+        url = "https://[2001:db8::1]:8443/rec.wav?X-Amz-Signature=deadbeef0123"
+        assert redact_url(url) == "https://[2001:db8::1]:8443/rec.wav"
+        out = redact_text(f"failed to fetch {url} (timeout)")
+        assert "deadbeef0123" not in out
+        assert "https://[2001:db8::1]:8443/rec.wav" in out
+
+    def test_parenthesis_inside_path_keeps_redacting(self):
+        out = redact_text("fetch https://host.test/a(1).wav?X-Amz-Signature=deadbeef0123 failed")
+        assert "deadbeef0123" not in out
+        assert "https://host.test/a(1).wav" in out
+        assert redact_text("url: /a(1).wav?sig=deadbeef0123 x") == "url: /a(1).wav x"
+
+    def test_closing_parenthesis_ends_a_parenthesized_url(self):
+        out = redact_text("(see https://host.test/a.wav?sig=deadbeef0123) next")
+        assert out == "(see https://host.test/a.wav) next"
+
+    def test_adversarial_input_is_fast(self):
+        for text in ("(/" * 32000, "/" * 64000, "(" * 64000, "https://" + "(a" * 32000):
+            start = time.perf_counter()
+            redact_text(text)
+            assert time.perf_counter() - start < 0.5
+
+
+def test_every_uvicorn_run_in_main_passes_the_redacting_log_config():
+    import ast
+    import pathlib
+
+    tree = ast.parse((pathlib.Path(__file__).parent.parent / "main.py").read_text())
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "run"
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "uvicorn"
+    ]
+    assert calls, "expected uvicorn.run calls in main.py"
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords}
+        value = kw.get("log_config")
+        assert (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "uvicorn_log_config"
+        ), f"uvicorn.run at line {call.lineno} lacks log_config=uvicorn_log_config()"

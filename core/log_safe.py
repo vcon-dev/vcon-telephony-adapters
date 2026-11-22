@@ -12,9 +12,17 @@ import copy
 import logging
 import re
 
-_URL_RE = re.compile(r"""[A-Za-z][A-Za-z0-9+.\-]*://[^\s'"<>)\]]+""")
-# A path with a query and no scheme, as urllib3 prints it: `with url: /a/b.wav?sig=...`
-_PATH_QUERY_RE = re.compile(r"""(?<![\w.:/-])(/[^\s'"<>)\]?#]*)[?#][^\s'"<>)\]]*""")
+# Characters allowed in a URL token, with balanced `( )` pairs tolerated so `/a(1).wav?x=1` is
+# one token while a lone `)` that closes a parenthesized URL still ends it. Every alternative
+# starts on a different character, so matching is linear.
+_TOKEN = r"""(?:[^\s'"<>()]|\([^\s'"<>()]*\))"""
+# scheme://authority/rest, where the authority may hold a bracketed IPv6 host: [2001:db8::1]:8443
+_URL_RE = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.\-]*://(?:[^\s'\"<>()/?#\[\]]|\[[^\]\s]*\])*" + _TOKEN + "*"
+)
+# A scheme-less `/path?query`, as urllib3 prints after `with url:`. Matched as a whole token so
+# the scan is linear on adversarial input.
+_BARE_TOKEN_RE = re.compile(r"(?:[^\s'\"<>()\[\]]|\([^\s'\"<>()]*\))+")
 _SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
 
@@ -59,7 +67,16 @@ def redact_text(text: object) -> str:
     after `with url:`.
     """
     out = _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
-    return _PATH_QUERY_RE.sub(lambda m: m.group(1), out)
+    return _BARE_TOKEN_RE.sub(_strip_bare_query, out)
+
+
+def _strip_bare_query(match: re.Match) -> str:
+    token = match.group(0)
+    if token.startswith("/"):
+        for i, ch in enumerate(token):
+            if ch in "?#":
+                return token[:i]
+    return token
 
 
 class AccessQueryRedactor(logging.Filter):
