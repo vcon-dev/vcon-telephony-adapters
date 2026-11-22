@@ -195,7 +195,7 @@ class VapiVconBuilder:
             return vcon
 
         except Exception as e:  # noqa: BLE001 - a build failure must not crash the webhook
-            logger.error(f"Error building VAPI vCon: {e}")
+            logger.error(f"Error building VAPI vCon: {redact_text(e)}")
             return None
 
     def _add_recording_dialog(self, vcon: Vcon, vapi_message: dict[str, Any]) -> None:
@@ -270,7 +270,7 @@ class VapiVconBuilder:
             published = self.publisher.publish(tmp_path, filename)
             return published.url, published.content_hash
         except PublishingError as exc:
-            logger.error(f"Publishing VAPI recording failed: {exc}")
+            logger.error(f"Publishing VAPI recording failed: {redact_text(exc)}")
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

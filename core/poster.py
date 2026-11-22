@@ -64,7 +64,7 @@ class HttpPoster:
             else:
                 logger.error(
                     f"Failed to post vCon {vcon.uuid} "
-                    f"(status: {response.status_code}, response: {response.text[:200]})"
+                    f"(status: {response.status_code}, response length: {len(response.text)})"
                 )
                 return False
 

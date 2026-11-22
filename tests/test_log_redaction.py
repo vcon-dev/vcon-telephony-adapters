@@ -17,7 +17,7 @@ SIGNED_URL = (
 SECRETS = ("deadbeef0123", "AKIAFAKE", "X-Amz-Signature", "?X-Amz")
 
 
-def _recording() -> TelnyxRecordingData:
+def _recording(url: str = SIGNED_URL) -> TelnyxRecordingData:
     return TelnyxRecordingData(
         {
             "data": {
@@ -28,7 +28,7 @@ def _recording() -> TelnyxRecordingData:
                     "to": TO_NUMBER,
                     "direction": "incoming",
                     "duration_millis": 30000,
-                    "recording_urls": {"wav": SIGNED_URL},
+                    "recording_urls": {"wav": url},
                     "start_time": "2024-01-15T10:29:30Z",
                 },
             }
@@ -140,3 +140,122 @@ def test_twilio_failed_download_does_not_log_query(caplog):
     assert "Error downloading recording" in _own_log(caplog)
     assert "deadbeef0123" not in _own_log(caplog)
     assert "AKIAFAKE" not in _own_log(caplog)
+
+
+# --- review follow-ups ------------------------------------------------------
+
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+def _closed_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class TestRealNetworkFailure:
+    """urllib3 prints `with url: /path?query` with no scheme on connection failures."""
+
+    def test_connection_refused_does_not_log_signature(self, caplog):
+        url = (
+            f"http://127.0.0.1:{_closed_port()}/bucket/rec-1.wav"
+            "?X-Amz-Credential=AKIAFAKE&X-Amz-Signature=deadbeef0123"
+        )
+        # Confirm the premise: the real error text carries the query with no scheme.
+        try:
+            requests.get(url, timeout=2)
+        except requests.RequestException as exc:
+            assert "deadbeef0123" in str(exc)
+            assert "http://" not in str(exc)
+
+        builder = TelnyxVconBuilder(api_key="test-api-key")
+        with caplog.at_level(logging.DEBUG):
+            assert builder._download_recording(_recording(url)) is None
+        assert "Failed to download Telnyx recording" in _own_log(caplog)
+        _assert_clean(_own_log(caplog))
+
+    def test_redact_text_scheme_less_path_forms(self):
+        for text in (
+            "Max retries exceeded with url: /b/rec-1.wav?X-Amz-Signature=deadbeef0123 (Caused by X)",
+            "failed for '/b/rec-1.wav?X-Amz-Signature=deadbeef0123'",
+            'GET "/b/rec-1.wav?sig=deadbeef0123" failed',
+            "(wss://host.test/stream?token=deadbeef0123)",
+            "s3://bucket/key?versionId=deadbeef0123",
+        ):
+            assert "deadbeef0123" not in redact_text(text), text
+        assert "/b/rec-1.wav" in redact_text("with url: /b/rec-1.wav?sig=x")
+
+
+class TestAccessLogQuery:
+    def test_access_log_has_no_query_string(self, capfd):
+        import uvicorn
+        from fastapi import FastAPI
+
+        from core.log_safe import uvicorn_log_config
+
+        app = FastAPI()
+
+        @app.post("/webhook/texml-recording")
+        def hook():
+            return {"ok": True}
+
+        port = _closed_port()
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=port,
+                log_level="info",
+                log_config=uvicorn_log_config(),
+            )
+        )
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            for _ in range(100):
+                if server.started:
+                    break
+                time.sleep(0.05)
+            assert server.started
+            r = requests.post(
+                f"http://127.0.0.1:{port}/webhook/texml-recording?token=secret", timeout=5
+            )
+            assert r.status_code == 200
+        finally:
+            server.should_exit = True
+            thread.join(5)
+        out = capfd.readouterr()
+        text = out.out + out.err
+        assert "/webhook/texml-recording" in text
+        assert "POST" in text and "200" in text
+        assert "secret" not in text
+        assert "token=" not in text
+
+
+class TestHelperEdges:
+    def test_mask_number_sip_uri_masks_user_part(self):
+        assert mask_number("sip:+15555550142@203.0.113.7:5060") == "***0142"
+        assert mask_number("sip:alice@203.0.113.7:5060") == "***"
+        assert mask_number("tel:+15555550177") == "***0177"
+
+    def test_redact_url_raw_at_in_password_and_other_schemes(self):
+        assert redact_url("https://user:p@ss@host.test/a") == "https://host.test/a"
+        assert redact_url("s3://bucket/key?versionId=1") == "s3://bucket/key"
+        assert redact_url("wss://u:p@h.test/s?token=1") == "wss://h.test/s"
+
+
+class TestPosterBody:
+    def test_error_body_not_logged(self, caplog):
+        from core.poster import HttpPoster
+
+        resp = MagicMock(status_code=422)
+        resp.text = f"input echoed: {FROM_NUMBER} {SIGNED_URL}"
+        vcon = MagicMock(uuid="u-1")
+        vcon.to_json.return_value = "{}"
+        poster = HttpPoster("http://conserver.example.test/vcon", {})
+        with patch("core.poster.requests.post", return_value=resp), caplog.at_level(logging.DEBUG):
+            assert poster.post(vcon) is False
+        assert "status: 422" in _own_log(caplog)
+        _assert_clean(_own_log(caplog))

@@ -19,7 +19,7 @@ import sys
 
 import uvicorn
 
-from core.log_safe import redact_url
+from core.log_safe import redact_url, uvicorn_log_config
 
 
 def setup_logging(level: str = "INFO"):
@@ -56,7 +56,13 @@ def run_twilio_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_freeswitch_adapter():
@@ -82,7 +88,13 @@ def run_freeswitch_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_asterisk_adapter():
@@ -109,7 +121,13 @@ def run_asterisk_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_telnyx_adapter():
@@ -135,7 +153,13 @@ def run_telnyx_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_bandwidth_adapter():
@@ -161,7 +185,13 @@ def run_bandwidth_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_vapi_adapter():
@@ -185,7 +215,13 @@ def run_vapi_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_pipecat_adapter():
@@ -213,7 +249,13 @@ def run_pipecat_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_elevenlabs_adapter():
@@ -236,7 +278,13 @@ def run_elevenlabs_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 def run_signalwire_adapter():
@@ -259,7 +307,13 @@ def run_signalwire_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        log_level=config.log_level.lower(),
+        log_config=uvicorn_log_config(),
+    )
 
 
 # Registry of available adapters

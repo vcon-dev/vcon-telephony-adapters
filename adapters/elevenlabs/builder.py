@@ -44,6 +44,7 @@ from vcon.session import Session
 from core.base_builder import scope_attachments
 from core.encoding import base64url_encode
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text
 from core.media_publisher import AudioPublisher, PublishingError
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ class ElevenLabsVconBuilder:
             return vcon
 
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Error building ElevenLabs transcription vCon: {e}")
+            logger.error(f"Error building ElevenLabs transcription vCon: {redact_text(e)}")
             return None
 
     def _build_audio(self, event: dict[str, Any], data: dict[str, Any]) -> Vcon | None:
@@ -201,7 +202,7 @@ class ElevenLabsVconBuilder:
             try:
                 audio_bytes = base64.b64decode(audio_b64)
             except (binascii.Error, ValueError) as exc:
-                logger.error(f"Could not decode ElevenLabs full_audio: {exc}")
+                logger.error(f"Could not decode ElevenLabs full_audio: {redact_text(exc)}")
                 return None
 
             vcon = Vcon.build_new()
@@ -248,7 +249,7 @@ class ElevenLabsVconBuilder:
             return vcon
 
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Error building ElevenLabs audio vCon: {e}")
+            logger.error(f"Error building ElevenLabs audio vCon: {redact_text(e)}")
             return None
 
     # ------------------------------------------------------------------
@@ -276,7 +277,7 @@ class ElevenLabsVconBuilder:
             published = self.publisher.publish(tmp_path, filename)
             return published.url, published.content_hash
         except PublishingError as exc:
-            logger.error(f"Publishing ElevenLabs audio failed: {exc}")
+            logger.error(f"Publishing ElevenLabs audio failed: {redact_text(exc)}")
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

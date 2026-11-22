@@ -162,7 +162,7 @@ class SignalWireVconBuilder:
             return vcon
 
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Error building SignalWire vCon: {e}")
+            logger.error(f"Error building SignalWire vCon: {redact_text(e)}")
             return None
 
     def _add_recording(
@@ -267,7 +267,7 @@ class SignalWireVconBuilder:
             published = self.publisher.publish(tmp_path, filename)
             return published.url, published.content_hash
         except PublishingError as exc:
-            logger.error(f"Publishing SignalWire recording failed: {exc}")
+            logger.error(f"Publishing SignalWire recording failed: {redact_text(exc)}")
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

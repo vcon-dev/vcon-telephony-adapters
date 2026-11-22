@@ -8,32 +8,79 @@ exception text (a `requests` error often quotes the URL) through `redact_text`.
 
 from __future__ import annotations
 
+import copy
+import logging
 import re
 
-_URL_RE = re.compile(r"https?://[^\s'\"<>)]+", re.IGNORECASE)
+_URL_RE = re.compile(r"""[A-Za-z][A-Za-z0-9+.\-]*://[^\s'"<>)\]]+""")
+# A path with a query and no scheme, as urllib3 prints it: `with url: /a/b.wav?sig=...`
+_PATH_QUERY_RE = re.compile(r"""(?<![\w.:/-])(/[^\s'"<>)\]?#]*)[?#][^\s'"<>)\]]*""")
+_SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
 
 def mask_number(number: object) -> str:
     """Reduce a phone number to its last four digits, e.g. `***0101`.
 
-    Returns `-` for an empty value and `***` when fewer than four digits remain.
+    A SIP or tel URI is masked on its user part only, so a host or port never
+    stands in for the digits. Returns `-` for an empty value and `***` when
+    fewer than four digits remain.
     """
     if not number:
         return "-"
-    digits = re.sub(r"\D", "", str(number))
+    text = str(number).strip()
+    uri = _SIP_USER_RE.match(text)
+    if uri:
+        text = uri.group(1)
+    elif "@" in text:
+        text = text.split("@", 1)[0]
+    digits = re.sub(r"\D", "", text)
     if len(digits) < 4:
         return "***"
     return f"***{digits[-4:]}"
 
 
 def redact_url(url: object) -> str:
-    """Drop the query string and fragment, and any userinfo, from a URL."""
+    """Drop the query string, fragment and userinfo from a URL (any scheme)."""
     if not url:
         return ""
     text = str(url).split("#", 1)[0].split("?", 1)[0]
-    return re.sub(r"^(https?://)[^/@]*@", r"\1", text, flags=re.IGNORECASE)
+    # Userinfo ends at the last `@` before the first path slash, so a raw `@` in a password is covered.
+    match = re.match(r"^([A-Za-z][A-Za-z0-9+.\-]*://)([^/]*)(.*)$", text, re.DOTALL)
+    if match and "@" in match.group(2):
+        host = match.group(2).rsplit("@", 1)[1]
+        text = f"{match.group(1)}{host}{match.group(3)}"
+    return text
 
 
 def redact_text(text: object) -> str:
-    """Apply `redact_url` to every URL found in free text, such as an exception message."""
-    return _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
+    """Strip queries from every URL in free text, such as an exception message.
+
+    Handles full URLs and the scheme-less `/path?query` form that urllib3 prints
+    after `with url:`.
+    """
+    out = _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
+    return _PATH_QUERY_RE.sub(lambda m: m.group(1), out)
+
+
+class AccessQueryRedactor(logging.Filter):
+    """Strip the query string from the request path in uvicorn access log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], args[2].split("?", 1)[0].split("#", 1)[0], *args[3:])
+        return True
+
+
+def uvicorn_log_config() -> dict:
+    """Uvicorn's default log config with the access handler filtered by `AccessQueryRedactor`.
+
+    Pass as `log_config=` to `uvicorn.run`. The access log keeps method, path and
+    status, and loses the query, which on a webhook route can carry a token.
+    """
+    from uvicorn.config import LOGGING_CONFIG
+
+    config = copy.deepcopy(LOGGING_CONFIG)
+    config.setdefault("filters", {})["redact_query"] = {"()": f"{__name__}.AccessQueryRedactor"}
+    config["handlers"]["access"]["filters"] = ["redact_query"]
+    return config
