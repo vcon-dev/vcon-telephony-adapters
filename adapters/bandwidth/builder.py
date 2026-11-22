@@ -9,6 +9,7 @@ from requests.auth import HTTPBasicAuth
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig
+from core.log_safe import redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 logger = logging.getLogger(__name__)
@@ -210,7 +211,7 @@ class BandwidthVconBuilder(BaseVconBuilder):
             return None
 
         try:
-            logger.debug(f"Downloading recording from: {recording_url}")
+            logger.debug(f"Downloading recording from: {redact_url(recording_url)}")
 
             auth = HTTPBasicAuth(*self.api_auth) if self.api_auth else None
             response = requests.get(recording_url, auth=auth, timeout=60)
@@ -218,5 +219,7 @@ class BandwidthVconBuilder(BaseVconBuilder):
             return response.content
 
         except requests.RequestException as e:
-            logger.error(f"Failed to download Bandwidth recording {bw_data.recording_id}: {e}")
+            logger.error(
+                f"Failed to download Bandwidth recording {bw_data.recording_id}: {redact_text(e)}"
+            )
             return None

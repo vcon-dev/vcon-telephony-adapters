@@ -13,6 +13,7 @@ import requests
 
 from core.base_builder import BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig, RelayedBasisError, RelayedLawfulBasis
+from core.log_safe import redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 from .call_session import (
@@ -711,7 +712,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return None
 
         try:
-            logger.debug(f"Downloading recording from: {recording_url}")
+            logger.debug(f"Downloading recording from: {redact_url(recording_url)}")
 
             # Telnyx hands back a **pre-signed S3 URL**, not a Telnyx-hosted one.
             # Two reasons never to attach the bearer token to it:
@@ -730,5 +731,7 @@ class TelnyxVconBuilder(BaseVconBuilder):
             return response.content
 
         except requests.RequestException as e:
-            logger.error(f"Failed to download Telnyx recording {telnyx_data.recording_id}: {e}")
+            logger.error(
+                f"Failed to download Telnyx recording {telnyx_data.recording_id}: {redact_text(e)}"
+            )
             return None
