@@ -18,7 +18,9 @@ import re
 _TOKEN = r"""(?:[^\s'"<>()]|\([^\s'"<>()]*\))"""
 # scheme://authority/rest, where the authority may hold a bracketed IPv6 host: [2001:db8::1]:8443
 _URL_RE = re.compile(
-    r"[A-Za-z][A-Za-z0-9+.\-]*://(?:[^\s'\"<>()/?#\[\]]|\[[^\]\s]*\])*" + _TOKEN + "*"
+    r"(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]{0,31}://(?:[^\s'\"<>()/?#\[\]]|\[[^\]\s]*\])*"
+    + _TOKEN
+    + "*"
 )
 # A scheme-less `/path?query`, as urllib3 prints after `with url:`. Matched as a whole token so
 # the scan is linear on adversarial input.
@@ -71,11 +73,19 @@ def redact_text(text: object) -> str:
 
 
 def _strip_bare_query(match: re.Match) -> str:
+    """Cut a token at its first `?` or `#` when a `/` comes before it (a path, however glued).
+
+    A `)` that closed a parenthesis opened before the cut is kept: `(/b?x=1)` -> `(/b)`.
+    Nested or unbalanced parentheses inside a path are out of scope.
+    """
     token = match.group(0)
-    if token.startswith("/"):
-        for i, ch in enumerate(token):
-            if ch in "?#":
-                return token[:i]
+    for i, ch in enumerate(token):
+        if ch in "?#":
+            if "/" not in token[:i]:
+                return token
+            tail = token[i:]
+            closers = tail.count(")") - tail.count("(")
+            return token[:i] + ")" * max(closers, 0)
     return token
 
 

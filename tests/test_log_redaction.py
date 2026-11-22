@@ -3,6 +3,7 @@
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 
 from adapters.telnyx.builder import TelnyxRecordingData, TelnyxVconBuilder
@@ -309,3 +310,32 @@ def test_every_uvicorn_run_in_main_passes_the_redacting_log_config():
             and isinstance(value.func, ast.Name)
             and value.func.id == "uvicorn_log_config"
         ), f"uvicorn.run at line {call.lineno} lacks log_config=uvicorn_log_config()"
+
+
+class TestFinalReviewNits:
+    @pytest.mark.parametrize("alphabet", ["a", "aB", "a1", "aB1+.-"])
+    def test_long_scheme_like_runs_are_fast(self, alphabet):
+        text = (alphabet * 70000)[:65536]
+        start = time.perf_counter()
+        redact_text(text)
+        assert time.perf_counter() - start < 0.1
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("url=/b?sig=deadbeef0123", "url=/b"),
+            ("url=//host.test/b?sig=deadbeef0123", "url=//host.test/b"),
+            ("(/b?sig=deadbeef0123)", "(/b)"),
+            (
+                "see (/b?sig=deadbeef0123) and url=/c?sig=deadbeef0123 end",
+                "see (/b) and url=/c end",
+            ),
+            (
+                "with url: /b/rec-1.wav?sig=deadbeef0123 (Caused by X)",
+                "with url: /b/rec-1.wav (Caused by X)",
+            ),
+            ("an ordinary question?", "an ordinary question?"),
+        ],
+    )
+    def test_glued_and_parenthesized_bare_paths(self, text, expected):
+        assert redact_text(text) == expected
