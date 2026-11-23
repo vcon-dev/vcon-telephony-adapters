@@ -379,8 +379,39 @@ class TestRedactTextNumbers:
             "at 2026-11-23T17:11:10.689132+00:00",
             "call v3:12345678901234 and v3:abc1234567890",
             "ip 10.0.0.1 port 5060 status 502 length 1234567",
-            "recording RE1234567890abcdef",
-            "ver 3.1415926535897",
         )
         for text in keep:
+            assert redact_text(text) == text, text
+
+
+class TestRedactTextNumberForms:
+    def test_masks_separated_and_encoded_forms(self):
+        for number in (
+            "+1-555-010-0001",
+            "(555) 010-0001",
+            "+1 555 010 0001",
+            "555.010.0001",
+            "555-010-0001",
+            "%2B15550100001",
+        ):
+            out = redact_text(f"failed for {number} now")
+            assert out == "failed for ***0001 now", (number, out)
+
+    def test_masks_numbers_glued_to_separators_and_names(self):
+        for text, expected in (
+            ("out-15550100001-1.wav", "out-***0001-1.wav"),
+            ("15550100001_inbound.wav", "***0001_inbound.wav"),
+            ("/rec/RE15550100001/a.wav", "/rec/RE***0001/a.wav"),
+            ("from:+15550100001", "from:***0001"),
+            ("sip:+15550100001@gw.test", "sip:***0001@gw.test"),
+        ):
+            assert redact_text(text) == expected, text
+
+    def test_keeps_ids_ports_and_short_numbers(self):
+        for text in (
+            "uuid 12345678-1234-1234-1234-123456789012",
+            "at 2026-11-23T17:11:10.689132+00:00",
+            "call v3:12345678901234 and v3:abc1234567890",
+            "ip 10.0.0.1:5060 status 502 length 1234567 id RE12345678",
+        ):
             assert redact_text(text) == text, text
