@@ -6,6 +6,7 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 from twilio.request_validator import RequestValidator
 
+from core.log_safe import redact_url
 from core.poster import HttpPoster
 from core.tracker import StateTracker
 
@@ -94,7 +95,7 @@ def create_app(config: TwilioConfig) -> FastAPI:
 
         # Validate the request
         if not validator.validate(url, params, signature):
-            logger.warning(f"Invalid Twilio signature for request to {url}")
+            logger.warning(f"Invalid Twilio signature for request to {redact_url(url)}")
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
         return True
