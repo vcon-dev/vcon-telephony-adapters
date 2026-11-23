@@ -386,6 +386,10 @@ def test_shutdown_with_unreachable_endpoint_is_bounded():
         "call from (508) 555-0123 ended",
         "from +1 508 555 0123",
         "sip:+15085550123@example.test",
+        "15085550123deadbeef",
+        "rec15085550123abcdef",
+        "150855501231763840000",
+        "x-5085550123abcdef0123456789-y",
     ],
 )
 def test_numbers_are_masked_inside_paths_and_formats(text):
@@ -393,7 +397,7 @@ def test_numbers_are_masked_inside_paths_and_formats(text):
 
     out = scrub_text(text)
     assert "508" not in out and "5550123" not in out and "50855" not in out, out
-    assert "***0123" in out, out
+    assert "***" in out, out
 
 
 def test_uuids_and_ids_are_not_mistaken_for_numbers():
@@ -402,19 +406,47 @@ def test_uuids_and_ids_are_not_mistaken_for_numbers():
     for value in (
         "7f1e2d3c-1111-4222-8333-123456789012",
         "session-abc-123",
-        "t-0123456789abcdef",
         "00-" + "ab" * 16 + "-" + "cd" * 8 + "-01",
     ):
         assert scrub_text(value) == value
 
 
-def test_integer_attributes_that_are_numbers_are_masked():
+def test_integer_attributes_are_masked_only_when_the_name_says_number():
     from core.telemetry import scrub_attributes
 
-    out = scrub_attributes({"n": 15085550123, "port": 8080, "ok": True, "ids": [15085550123, 7]})
-    assert out["n"] == "***0123"
+    out = scrub_attributes(
+        {
+            "caller.number": 15085550123,
+            "phone": 15085550123,
+            "from": 15085550123,
+            "numbers": [15085550123, 7],
+            "http.response_content_length": 2147483648,
+            "event.time_ms": 1763840000000,
+            "port": 8080,
+            "ok": True,
+        }
+    )
+    assert out["caller.number"] == out["phone"] == out["from"] == "***0123"
+    assert out["numbers"] == ("***0123", 7)
+    assert out["http.response_content_length"] == 2147483648
+    assert out["event.time_ms"] == 1763840000000
     assert out["port"] == 8080 and out["ok"] is True
-    assert out["ids"] == ("***0123", 7)
+
+
+def test_id_attributes_are_kept_by_name_and_other_text_is_masked():
+    from core.telemetry import scrub_attributes
+
+    ids = {
+        "call.session_id": "7f1e2d3c-1111-4222-8333-123456789012",
+        "call.control_id": "v3:1508555012312345678901234567890",
+        "vcon.uuid": "7f1e2d3c-1111-4222-8333-123456789012",
+        "stream.id": "1508555012312345",
+        "tenant.id": "t-0123456789abcdef",
+    }
+    out = scrub_attributes({**ids, "note": "x 15085550123deadbeef y"})
+    for key, value in ids.items():
+        assert out[key] == value, key
+    assert "5085550123" not in out["note"]
 
 
 def test_spans_are_flushed_on_sigterm_of_the_real_main(tmp_path):

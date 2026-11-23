@@ -48,17 +48,24 @@ _DROP_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 # A phone number, bounded on digits only, so it is caught inside a path or file name such as
-# `out-5085550123-1001/15085550123_inbound.wav`: +E.164 with separators, 1-NXX-NXX-XXXX or
-# NXX-NXX-XXXX with separators, or a bare 10 to 15 digit run. UUIDs and long hex tokens match
-# first and are kept, so a vCon uuid whose last group happens to be all digits survives.
-_KEEP = (
-    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}"
-)
+# `out-5085550123-1001/15085550123_inbound.wav` or glued to letters: +E.164 with separators,
+# 1-NXX-NXX-XXXX or NXX-NXX-XXXX with separators, or any run of 10 or more digits (a number
+# glued to a timestamp is one long run). A canonical standalone UUID is matched first and kept,
+# so a vCon uuid whose last group is all digits survives; hex runs get no such exemption. The
+# known id attributes are exempt by name instead (`_ID_KEYS`).
+_HEX = "[0-9a-fA-F]"
 _PHONE_RE = re.compile(
-    rf"(?P<keep>{_KEEP})"
+    rf"(?P<keep>(?<!{_HEX})(?:{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}})(?!{_HEX}))"
     r"|(?<!\d)(?:\+\d[\d\s().\-]{6,17}\d"
     r"|(?:1[\s.\-])?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}"
-    r"|\d{10,15})(?!\d)"
+    r"|\d{10,})(?!\d)"
+)
+# Attributes that hold an id this program sets itself. Their values are never number-masked.
+_ID_KEYS = frozenset({"call.session_id", "call.control_id", "vcon.uuid", "stream.id", "tenant.id"})
+# Integer attributes are masked only when the name suggests a phone number, so timestamps,
+# epoch values and byte counts keep their value.
+_NUMBER_KEY_RE = re.compile(
+    r"number|phone|caller|callee|(?:^|[._])(?:from|to|ani|dnis)$", re.IGNORECASE
 )
 
 _state: dict[str, Any] = {}
@@ -90,9 +97,13 @@ def scrub_name(name: str) -> str:
 
 
 def _scrub_value(key: str, value: Any) -> Any:
-    if isinstance(value, int) and not isinstance(value, bool) and 10 <= len(str(abs(value))) <= 15:
-        return mask_number(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        if _NUMBER_KEY_RE.search(key) and len(str(abs(value))) >= 10:
+            return mask_number(value)
+        return value
     if isinstance(value, str):
+        if key in _ID_KEYS:
+            return redact_text(value)
         if key in _URL_KEYS:
             value = redact_url(_cut_query(value))
         return scrub_text(value)
