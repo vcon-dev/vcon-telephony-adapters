@@ -93,7 +93,7 @@ class LawfulBasisConfig:
 
         if self.lawful_basis and self.lawful_basis not in VALID_LAWFUL_BASES:
             raise ValueError(
-                f"LAWFUL_BASIS={self.lawful_basis!r} is not one of {sorted(VALID_LAWFUL_BASES)}"
+                f"LAWFUL_BASIS={self.lawful_basis!r} is not one of " f"{sorted(VALID_LAWFUL_BASES)}"
             )
         if self.lawful_basis and not self.purposes:
             raise ValueError("LAWFUL_BASIS is set but LAWFUL_BASIS_PURPOSES is empty")

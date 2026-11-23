@@ -309,7 +309,7 @@ def test_with_a_counted_tenant_the_basis_tags_are_dropped(tmp_path, carrier, bas
     assert f"annotation_tenant:{TENANT}" in tags
     for name, value in FORMS[carrier]:
         if name.startswith("Annotation-"):
-            assert f"annotation_{name[len('Annotation-') :]}:{value}" in tags
+            assert f"annotation_{name[len('Annotation-'):]}:{value}" in tags
     assert basis["chosen_by"] not in json.dumps(tags)
 
 
@@ -582,9 +582,8 @@ def test_free_text_round_trips_from_a_real_form(tmp_path, carrier, case):
     assert metadata["justification"] == JUSTIFICATIONS[case]
     assert metadata["chosen_by"] == basis["chosen_by"]
     assert metadata["checked_by"] == basis["checked_by"]
-    assert (
-        attachment["body"]["proof_mechanisms"][0]["proof_data"]["checked_by"]
-        == (basis["checked_by"])
+    assert attachment["body"]["proof_mechanisms"][0]["proof_data"]["checked_by"] == (
+        basis["checked_by"]
     )
     # And the wire JSON carries it back unchanged.
     wire = json.loads(vcon.to_json())

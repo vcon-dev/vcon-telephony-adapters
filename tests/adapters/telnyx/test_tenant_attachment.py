@@ -270,9 +270,9 @@ def _untrusted(tmp_path, caplog, reason, **kwargs):
     vcon = post_forward(form_body("telnyx", TENANT), tmp_path, **kwargs)
 
     assert _tenant_attachments(vcon) == []
-    assert normalized(vcon) + "\n" == golden_path("telnyx", "valid").read_text(), (
-        "the vCon is what it was before the attachment existed, tag included"
-    )
+    assert (
+        normalized(vcon) + "\n" == golden_path("telnyx", "valid").read_text()
+    ), "the vCon is what it was before the attachment existed, tag included"
     [line] = [r.getMessage() for r in caplog.records if "Annotation-tenant" in r.getMessage()]
     assert line == f"Annotation-tenant ignored: {reason}"
     assert TENANT not in line and TOKEN not in line

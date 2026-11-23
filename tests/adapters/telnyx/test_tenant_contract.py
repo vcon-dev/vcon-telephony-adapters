@@ -182,7 +182,8 @@ def test_the_store_lawful_basis_reader_reads_the_tenant_s_basis(tmp_path):
     no_expiration = f"{label}: expiration is missing (only legitimate_interests may omit it)"
     no_proof = f"{label}: proof_mechanisms is empty"
     missing = (
-        "no lawful_basis attachment: this vCon carries no record of the lawful basis for processing"
+        "no lawful_basis attachment: this vCon carries no record of the lawful basis for "
+        "processing"
     )
     cases = []
     for name, basis, tenant, post_args, expected in [
