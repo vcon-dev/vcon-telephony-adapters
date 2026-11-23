@@ -25,6 +25,14 @@ _URL_RE = re.compile(
 # A scheme-less `/path?query`, as urllib3 prints after `with url:`. Matched as a whole token so
 # the scan is linear on adversarial input.
 _BARE_TOKEN_RE = re.compile(r"(?:[^\s'\"<>()\[\]]|\([^\s'\"<>()]*\))+")
+# A bare E.164 style number (10 to 15 digits, `+` optional) standing alone in text. Not preceded
+# by a word character, `-`, `.`, `:` or `/`, and not followed by one, so uuids, ISO timestamps,
+# `v3:` ids, IPs and path ids are left alone.
+_NUMBER_RE = re.compile(r"(?<![\w\-.:/])\+?\d{10,15}(?![\w\-]|\.\d)")
+# The same number as the user part of a sip:, sips: or tel: URI, where `:` precedes it.
+_URI_NUMBER_RE = re.compile(
+    r"(?<![\w\-.])((?:sips?|tel):)\+?\d{10,15}(?![\w\-]|\.\d)", re.IGNORECASE
+)
 _SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
 
@@ -63,13 +71,16 @@ def redact_url(url: object) -> str:
 
 
 def redact_text(text: object) -> str:
-    """Strip queries from every URL in free text, such as an exception message.
+    """Strip queries from every URL, and mask every phone number, in free text.
 
     Handles full URLs and the scheme-less `/path?query` form that urllib3 prints
-    after `with url:`.
+    after `with url:`. Numbers (E.164 with or without `+`, 10 to 15 digits, also as
+    the user part of a SIP or tel URI) go through `mask_number`.
     """
     out = _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
-    return _BARE_TOKEN_RE.sub(_strip_bare_query, out)
+    out = _BARE_TOKEN_RE.sub(_strip_bare_query, out)
+    out = _URI_NUMBER_RE.sub(lambda m: m.group(1) + mask_number(m.group(0)), out)
+    return _NUMBER_RE.sub(lambda m: mask_number(m.group(0)), out)
 
 
 def _strip_bare_query(match: re.Match) -> str:
