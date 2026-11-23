@@ -339,3 +339,48 @@ class TestFinalReviewNits:
     )
     def test_glued_and_parenthesized_bare_paths(self, text, expected):
         assert redact_text(text) == expected
+
+
+class TestRedactTextNumbers:
+    def test_masks_numbers_in_error_text(self):
+        out = redact_text("boom for +15550100001 at http://host.test/r.mp3?sig=deadbeef0123")
+        assert "5550100001" not in out
+        assert "***0001" in out
+        assert "deadbeef0123" not in out
+        assert "http://host.test/r.mp3" in out
+
+    def test_masks_with_and_without_plus_and_lengths(self):
+        for number in (
+            "+15550100001",
+            "15550100001",
+            "5550100001",
+            "+442071838750",
+            "123456789012345",
+        ):
+            out = redact_text(f"failed for {number}.")
+            assert number.lstrip("+") not in out, number
+            assert f"***{number[-4:]}." in out, number
+
+    def test_masks_numbers_in_sip_and_tel_uris(self):
+        for text in (
+            "INVITE sip:+15550100001@gw.test;user=phone",
+            "to tel:+15550100001",
+            "sips:15550100001@h.test",
+        ):
+            out = redact_text(text)
+            assert "5550100001" not in out, text
+            assert "***0001" in out, text
+        assert "gw.test" in redact_text("sip:+15550100001@gw.test")
+
+    def test_leaves_ids_timestamps_and_short_numbers(self):
+        keep = (
+            "uuid 01a20963-e260-8a14-9dd8-dd37220d739c",
+            "uuid 12345678-1234-1234-1234-123456789012",
+            "at 2026-11-23T17:11:10.689132+00:00",
+            "call v3:12345678901234 and v3:abc1234567890",
+            "ip 10.0.0.1 port 5060 status 502 length 1234567",
+            "recording RE1234567890abcdef",
+            "ver 3.1415926535897",
+        )
+        for text in keep:
+            assert redact_text(text) == text, text
