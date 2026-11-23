@@ -374,3 +374,119 @@ def test_shutdown_with_unreachable_endpoint_is_bounded():
     elapsed = float(result.stdout.split("ELAPSED")[1].split()[0])
     assert elapsed < 4, elapsed
     assert time.monotonic() - start < 20
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "http://127.0.0.1/rec/out-5085550123-1001-20260101/file.wav",
+        "http://127.0.0.1/rec/15085550123_inbound.wav",
+        "call from 1-508-555-0123 ended",
+        "call from 508-555-0123x12 ended",
+        "call from (508) 555-0123 ended",
+        "from +1 508 555 0123",
+        "sip:+15085550123@example.test",
+    ],
+)
+def test_numbers_are_masked_inside_paths_and_formats(text):
+    from core.telemetry import scrub_text
+
+    out = scrub_text(text)
+    assert "508" not in out and "5550123" not in out and "50855" not in out, out
+    assert "***0123" in out, out
+
+
+def test_uuids_and_ids_are_not_mistaken_for_numbers():
+    from core.telemetry import scrub_text
+
+    for value in (
+        "7f1e2d3c-1111-4222-8333-123456789012",
+        "session-abc-123",
+        "t-0123456789abcdef",
+        "00-" + "ab" * 16 + "-" + "cd" * 8 + "-01",
+    ):
+        assert scrub_text(value) == value
+
+
+def test_integer_attributes_that_are_numbers_are_masked():
+    from core.telemetry import scrub_attributes
+
+    out = scrub_attributes({"n": 15085550123, "port": 8080, "ok": True, "ids": [15085550123, 7]})
+    assert out["n"] == "***0123"
+    assert out["port"] == 8080 and out["ok"] is True
+    assert out["ids"] == ("***0123", 7)
+
+
+def test_spans_are_flushed_on_sigterm_of_the_real_main(tmp_path):
+    """uvicorn re-raises SIGTERM after shutting down, so the flush must run in the lifespan."""
+    import os
+    import signal
+    import urllib.request
+
+    received: list[bytes] = []
+
+    class Collector(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            received.append(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    collector = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Collector)
+    threading.Thread(target=collector.serve_forever, daemon=True).start()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OTEL_")}
+    env.update(
+        {
+            "CONSERVER_URL": "http://127.0.0.1:9/vcon",
+            "STATE_FILE": str(tmp_path / "state.json"),
+            "VALIDATE_TELNYX_WEBHOOK": "false",
+            "HOST": "127.0.0.1",
+            "PORT": str(port),
+            "DOWNLOAD_RECORDINGS": "false",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{collector.server_address[1]}",
+        }
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "main.py", "telnyx"],
+        cwd=REPO_ROOT,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        base = f"http://127.0.0.1:{port}"
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                urllib.request.urlopen(f"{base}/health", timeout=1).read()
+                break
+            except Exception:
+                time.sleep(0.2)
+        else:
+            pytest.fail("adapter did not start")
+        body = "&".join(
+            f"{k}={v}"
+            for k, v in {
+                "RecordingStatus": "completed",
+                "RecordingUrl": "http://127.0.0.1:9/x.mp3",
+                "RecordingSid": "rec-sigterm",
+                "CallSessionId": "session-sigterm",
+            }.items()
+        ).encode()
+        urllib.request.urlopen(f"{base}/webhook/texml-recording", data=body, timeout=10).read()
+        assert not received, "the batch should still be waiting when the stop arrives"
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=20)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        collector.shutdown()
+    assert received, "no spans reached the collector after SIGTERM"
+    assert b"texml-recording" in b"".join(received)
+    assert b"session-sigterm" in b"".join(received)

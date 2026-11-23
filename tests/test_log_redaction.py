@@ -310,6 +310,10 @@ def test_every_uvicorn_run_in_main_passes_the_redacting_log_config():
     calls = [
         n for n in ast.walk(tree) if starts_server(n) and not any(k.arg is None for k in n.keywords)
     ]
+    started = [n for n in ast.walk(tree) if starts_server(n)]
+    assert any(isinstance(n.func, ast.Attribute) for n in started), "no uvicorn.run call found"
+    assert any(isinstance(n.func, ast.Name) for n in started), "no serve() call found"
+    assert calls, "no server start with explicit keywords to check"
     for call in calls:
         kw = {k.arg: k.value for k in call.keywords}
         value = kw.get("log_config")

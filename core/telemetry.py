@@ -21,12 +21,13 @@ that is down never blocks a webhook or a stop. Traces only: no metric or log exp
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
 import re
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any
 
 from core.log_safe import mask_number, redact_text, redact_url
@@ -46,10 +47,18 @@ _DROP_KEY_RE = re.compile(
     r"(^http\.(request|response)\.header\.)|authorization|cookie|token|secret|signature|password",
     re.IGNORECASE,
 )
-# A phone number: +E.164 with separators, a bare 10 to 15 digit run, or 3-3-4 with separators.
-# Not preceded by a word character, dot or hyphen, so UUID groups and versions are left alone.
+# A phone number, bounded on digits only, so it is caught inside a path or file name such as
+# `out-5085550123-1001/15085550123_inbound.wav`: +E.164 with separators, 1-NXX-NXX-XXXX or
+# NXX-NXX-XXXX with separators, or a bare 10 to 15 digit run. UUIDs and long hex tokens match
+# first and are kept, so a vCon uuid whose last group happens to be all digits survives.
+_KEEP = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}"
+)
 _PHONE_RE = re.compile(
-    r"(?<![\w.\-])(?:\+\d[\d\s().\-]{6,17}\d|\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}|\d{10,15})(?!\w)"
+    rf"(?P<keep>{_KEEP})"
+    r"|(?<!\d)(?:\+\d[\d\s().\-]{6,17}\d"
+    r"|(?:1[\s.\-])?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}"
+    r"|\d{10,15})(?!\d)"
 )
 
 _state: dict[str, Any] = {}
@@ -72,7 +81,7 @@ def _cut_query(text: str) -> str:
 def scrub_text(text: str) -> str:
     """Strip URL queries from free text and mask phone numbers in it."""
     out = redact_text(text)
-    return _PHONE_RE.sub(lambda m: mask_number(m.group(0)), out)
+    return _PHONE_RE.sub(lambda m: m.group(0) if m.group("keep") else mask_number(m.group(0)), out)
 
 
 def scrub_name(name: str) -> str:
@@ -81,6 +90,8 @@ def scrub_name(name: str) -> str:
 
 
 def _scrub_value(key: str, value: Any) -> Any:
+    if isinstance(value, int) and not isinstance(value, bool) and 10 <= len(str(abs(value))) <= 15:
+        return mask_number(value)
     if isinstance(value, str):
         if key in _URL_KEYS:
             value = redact_url(_cut_query(value))
@@ -259,6 +270,21 @@ def _instrument_app(app: Any) -> None:
         app, tracer_provider=_state["provider"], excluded_urls="/health"
     )
     _state["apps"].append(app)
+
+    # uvicorn re-raises SIGTERM with the default handler once the server has shut down, so code
+    # after `uvicorn.run` never runs on a systemd stop. The lifespan shutdown does run, and it
+    # runs after the last request, so the final spans are flushed there.
+    inner = app.router.lifespan_context
+
+    @contextlib.asynccontextmanager
+    async def lifespan(a: Any) -> AsyncIterator[Any]:
+        try:
+            async with inner(a) as state:
+                yield state
+        finally:
+            await asyncio.to_thread(shutdown_tracing)
+
+    app.router.lifespan_context = lifespan
 
 
 def shutdown_tracing(timeout: float = SHUTDOWN_TIMEOUT_SECONDS) -> None:
