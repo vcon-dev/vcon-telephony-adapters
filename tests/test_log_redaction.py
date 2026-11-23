@@ -292,16 +292,28 @@ def test_every_uvicorn_run_in_main_passes_the_redacting_log_config():
     import pathlib
 
     tree = ast.parse((pathlib.Path(__file__).parent.parent / "main.py").read_text())
+
+    def starts_server(n: ast.AST) -> bool:
+        if not isinstance(n, ast.Call):
+            return False
+        f = n.func
+        if isinstance(f, ast.Name) and f.id == "serve":
+            return True  # main.serve wraps uvicorn.run with tracing
+        return (
+            isinstance(f, ast.Attribute)
+            and f.attr == "run"
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "uvicorn"
+        )
+
+    # serve() forwards its keywords to uvicorn.run with `**`; the callers are what is checked.
     calls = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "run"
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == "uvicorn"
+        n for n in ast.walk(tree) if starts_server(n) and not any(k.arg is None for k in n.keywords)
     ]
-    assert calls, "expected uvicorn.run calls in main.py"
+    started = [n for n in ast.walk(tree) if starts_server(n)]
+    assert any(isinstance(n.func, ast.Attribute) for n in started), "no uvicorn.run call found"
+    assert any(isinstance(n.func, ast.Name) for n in started), "no serve() call found"
+    assert calls, "no server start with explicit keywords to check"
     for call in calls:
         kw = {k.arg: k.value for k in call.keywords}
         value = kw.get("log_config")

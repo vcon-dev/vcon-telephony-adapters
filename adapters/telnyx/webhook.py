@@ -11,10 +11,11 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from core.lawful_basis import PURPOSES_HEADER, purposes_sha12
 from core.poster import HttpPoster
+from core.telemetry import annotate_current_span, traced_span
 from core.tracker import StateTracker
 from core.webhook_security import is_timestamp_fresh
 
-from .builder import TelnyxRecordingData, TelnyxVconBuilder
+from .builder import TelnyxRecordingData, TelnyxVconBuilder, relayed_tenant
 from .call_session import CallSessionStore
 from .config import TelnyxConfig
 from .provision import TelnyxProvisioner, handle_call_event
@@ -351,6 +352,13 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             return "OK"
 
         logger.info(f"Received Telnyx recording event: recording_id={recording_id}")
+        call_ids = {
+            "call_session_id": recording_data.call_session_id,
+            "call_control_id": payload.get("call_control_id"),
+            "carrier": "telnyx",
+            "tenant_id": relayed_tenant(recording_data)[0],
+        }
+        annotate_current_span(**call_ids)
 
         # Check if already processed
         if tracker.is_processed(recording_id):
@@ -372,7 +380,9 @@ def create_app(config: TelnyxConfig) -> FastAPI:
             return "OK"
 
         # Post to conserver
-        success = poster.post(vcon)
+        annotate_current_span(vcon_uuid=vcon.uuid)
+        with traced_span("vcon.post", vcon_uuid=vcon.uuid, **call_ids):
+            success = poster.post(vcon)
 
         if success:
             tracker.mark_processed(

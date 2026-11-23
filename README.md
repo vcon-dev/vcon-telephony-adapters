@@ -775,6 +775,34 @@ and a `session` (or, for per-recording metadata, `dialog`) scope are always
 present, as the Attachment Object requires. The lawful basis is scoped to
 the call's Session, per the core-05 lawful basis draft.
 
+## Tracing (OpenTelemetry)
+
+Every adapter can export traces over OTLP/HTTP. It is off until you set
+`OTEL_EXPORTER_OTLP_ENDPOINT`; unset, no OpenTelemetry code is imported and behavior is
+unchanged. `main.py` starts tracing before the server serves, so the command line does not
+change.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | unset | Collector base URL, for example `http://localhost:4318`. Setting it turns tracing on |
+| `OTEL_SERVICE_NAME` | No | `vcon-telephony-adapter-<adapter>` | Service name, so two instances can report as different services |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | No | unset | Sets `deployment.environment`. `OTEL_RESOURCE_ATTRIBUTES` also works |
+| `OTEL_SDK_DISABLED` | No | `false` | `true` keeps tracing off even with an endpoint set |
+
+What you get: a server span per webhook, and a client span for each `requests` call, including
+the conserver post, which carries a W3C `traceparent` so the conserver continues the trace.
+The Telnyx recording routes add `call.session_id`, `call.control_id`, `call.carrier`,
+`tenant.id` and `vcon.uuid` (when known) to the webhook span and to a `vcon.post` span, so one
+call can be found by its session id. These are span attributes only, never metric labels.
+
+What never leaves the process: every span is sanitized on a copy before export. Query strings
+and fragments are cut from names and URL attributes (a webhook token and a signed recording
+URL both sit in a query), `exception.stacktrace` is dropped, exception text goes through
+`redact_text`, phone numbers are masked to their last four digits, and header and
+credential-named attributes are dropped. Propagation is W3C trace context only, with no
+baggage. The exporter timeout and the shutdown wait are each bounded at 3 seconds, so a
+collector that is down never holds up a webhook or a stop. Only traces are exported.
+
 ## Webhook authentication
 
 Every webhook-based adapter validates its incoming webhooks by default

@@ -22,6 +22,21 @@ import uvicorn
 from core.log_safe import redact_url, uvicorn_log_config
 
 
+def serve(app, adapter: str, **uvicorn_kwargs):
+    """Run `app` under uvicorn, with OpenTelemetry tracing when an endpoint is configured.
+
+    Tracing starts only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; otherwise this is just
+    `uvicorn.run`. The exporter is flushed, within a bounded wait, when the server stops.
+    """
+    from core.telemetry import init_tracing, shutdown_tracing
+
+    init_tracing(app, adapter)
+    try:
+        uvicorn.run(app, **uvicorn_kwargs)
+    finally:
+        shutdown_tracing()
+
+
 def setup_logging(level: str = "INFO"):
     """Configure logging for the application.
 
@@ -56,8 +71,9 @@ def run_twilio_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "twilio",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -88,8 +104,9 @@ def run_freeswitch_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "freeswitch",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -121,8 +138,9 @@ def run_asterisk_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "asterisk",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -153,8 +171,9 @@ def run_telnyx_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "telnyx",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -185,8 +204,9 @@ def run_bandwidth_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "bandwidth",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -215,8 +235,9 @@ def run_vapi_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "vapi",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -249,8 +270,9 @@ def run_pipecat_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "pipecat",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -278,8 +300,9 @@ def run_elevenlabs_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "elevenlabs",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
@@ -307,8 +330,9 @@ def run_signalwire_adapter():
 
     # Run server
     logger.info(f"Starting server on {config.host}:{config.port}")
-    uvicorn.run(
+    serve(
         app,
+        "signalwire",
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
