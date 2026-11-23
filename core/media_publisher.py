@@ -233,7 +233,7 @@ class S3Publisher:
                 final_attempt = attempt + 1 >= self.retry_attempts
                 if final_attempt or not self._is_retryable(exc):
                     raise PublishingError(
-                        f"Cannot publish {source} to s3://" f"{self.bucket}/{key}: {exc}"
+                        f"Cannot publish {source} to s3://{self.bucket}/{key}: {exc}"
                     ) from exc
                 self.sleep(self.backoff_factor * (2**attempt))
 

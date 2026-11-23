@@ -25,13 +25,19 @@ _URL_RE = re.compile(
 # A scheme-less `/path?query`, as urllib3 prints after `with url:`. Matched as a whole token so
 # the scan is linear on adversarial input.
 _BARE_TOKEN_RE = re.compile(r"(?:[^\s'\"<>()\[\]]|\([^\s'\"<>()]*\))+")
-# A bare E.164 style number (10 to 15 digits, `+` optional) standing alone in text. Not preceded
-# by a word character, `-`, `.`, `:` or `/`, and not followed by one, so uuids, ISO timestamps,
-# `v3:` ids, IPs and path ids are left alone.
-_NUMBER_RE = re.compile(r"(?<![\w\-.:/])\+?\d{10,15}(?![\w\-]|\.\d)")
-# The same number as the user part of a sip:, sips: or tel: URI, where `:` precedes it.
-_URI_NUMBER_RE = re.compile(
-    r"(?<![\w\-.])((?:sips?|tel):)\+?\d{10,15}(?![\w\-]|\.\d)", re.IGNORECASE
+# A phone number, bounded on digits only, so it is caught inside a path or file name such as
+# `out-5085550123-1001/15085550123_inbound.wav` or glued to letters. Forms: `+` or `%2B` then
+# E.164 with separators, 1-NXX-NXX-XXXX or NXX-NXX-XXXX with separators, or any run of 10 or
+# more digits (so standalone epoch seconds and millis are masked too). A canonical UUID and a
+# `v3:` id are matched first and kept, so a vCon uuid whose last group is all digits survives.
+# Ports, IPs, short ids and ISO timestamps have no 10-digit run and no 3-3-4 grouping.
+_HEX = "[0-9a-fA-F]"
+_PHONE_RE = re.compile(
+    rf"(?P<keep>(?<!{_HEX})(?:{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}})(?!{_HEX})"
+    r"|(?<![\w])v3:[A-Za-z0-9_\-=]+)"
+    r"|(?<!\d)(?:(?:\+|%2[Bb])\d[\d\s().\-]{6,17}\d"
+    r"|(?:1[\s.\-])?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}"
+    r"|(?:%2[Bb])?\d{10,})(?!\d)"
 )
 _SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
@@ -70,17 +76,25 @@ def redact_url(url: object) -> str:
     return text
 
 
+def mask_phone_numbers(text: str) -> str:
+    """Replace every phone number in free text with its `mask_number` form."""
+    return _PHONE_RE.sub(lambda m: m.group(0) if m.group("keep") else mask_number(m.group(0)), text)
+
+
+def redact_text_urls(text: object) -> str:
+    """Strip queries from every URL in free text, leaving numbers and ids as they are."""
+    out = _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
+    return _BARE_TOKEN_RE.sub(_strip_bare_query, out)
+
+
 def redact_text(text: object) -> str:
     """Strip queries from every URL, and mask every phone number, in free text.
 
     Handles full URLs and the scheme-less `/path?query` form that urllib3 prints
     after `with url:`. Numbers (E.164 with or without `+`, 10 to 15 digits, also as
-    the user part of a SIP or tel URI) go through `mask_number`.
+    separators, `%2B`, the user part of a SIP or tel URI) go through `mask_number`.
     """
-    out = _URL_RE.sub(lambda m: redact_url(m.group(0)), str(text))
-    out = _BARE_TOKEN_RE.sub(_strip_bare_query, out)
-    out = _URI_NUMBER_RE.sub(lambda m: m.group(1) + mask_number(m.group(0)), out)
-    return _NUMBER_RE.sub(lambda m: mask_number(m.group(0)), out)
+    return mask_phone_numbers(redact_text_urls(text))
 
 
 def _strip_bare_query(match: re.Match) -> str:

@@ -30,7 +30,7 @@ import threading
 from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any
 
-from core.log_safe import mask_number, redact_text, redact_url
+from core.log_safe import mask_number, redact_text, redact_text_urls, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +46,6 @@ _DROP_KEYS = frozenset({"url.query", "exception.stacktrace"})
 _DROP_KEY_RE = re.compile(
     r"(^http\.(request|response)\.header\.)|authorization|cookie|token|secret|signature|password",
     re.IGNORECASE,
-)
-# A phone number, bounded on digits only, so it is caught inside a path or file name such as
-# `out-5085550123-1001/15085550123_inbound.wav` or glued to letters: +E.164 with separators,
-# 1-NXX-NXX-XXXX or NXX-NXX-XXXX with separators, or any run of 10 or more digits (a number
-# glued to a timestamp is one long run). A canonical standalone UUID is matched first and kept,
-# so a vCon uuid whose last group is all digits survives; hex runs get no such exemption. The
-# known id attributes are exempt by name instead (`_ID_KEYS`).
-_HEX = "[0-9a-fA-F]"
-_PHONE_RE = re.compile(
-    rf"(?P<keep>(?<!{_HEX})(?:{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}})(?!{_HEX}))"
-    r"|(?<!\d)(?:\+\d[\d\s().\-]{6,17}\d"
-    r"|(?:1[\s.\-])?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}"
-    r"|\d{10,})(?!\d)"
 )
 # Attributes that hold an id this program sets itself. Their values are never number-masked.
 _ID_KEYS = frozenset({"call.session_id", "call.control_id", "vcon.uuid", "stream.id", "tenant.id"})
@@ -87,8 +74,7 @@ def _cut_query(text: str) -> str:
 
 def scrub_text(text: str) -> str:
     """Strip URL queries from free text and mask phone numbers in it."""
-    out = redact_text(text)
-    return _PHONE_RE.sub(lambda m: m.group(0) if m.group("keep") else mask_number(m.group(0)), out)
+    return redact_text(text)
 
 
 def scrub_name(name: str) -> str:
@@ -103,7 +89,7 @@ def _scrub_value(key: str, value: Any) -> Any:
         return value
     if isinstance(value, str):
         if key in _ID_KEYS:
-            return redact_text(value)
+            return redact_text_urls(value)
         if key in _URL_KEYS:
             value = redact_url(_cut_query(value))
         return scrub_text(value)

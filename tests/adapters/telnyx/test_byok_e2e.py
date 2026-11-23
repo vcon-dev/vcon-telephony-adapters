@@ -272,9 +272,9 @@ def test_api_key_is_never_sent_to_a_presigned_url(real_event):
     with patch("adapters.telnyx.builder.requests.get", side_effect=fake_get):
         TelnyxVconBuilder(True, "wav", "super-secret-key").build(TelnyxRecordingData(real_event))
 
-    assert (
-        "Authorization" not in captured["headers"]
-    ), "the customer's API key was sent to a third-party host"
+    assert "Authorization" not in captured["headers"], (
+        "the customer's API key was sent to a third-party host"
+    )
 
 
 def test_api_key_is_still_sent_to_telnyx_hosts():
@@ -382,9 +382,9 @@ def test_thin_vcon_is_dramatically_smaller(real_event, dual_channel_wav, tmp_pat
         dual_channel_wav,
         publisher=FilesystemPublisher(destination=tmp_path, base_url="https://m.test"),
     )
-    assert len(thin.to_json()) * 100 < len(
-        fat.to_json()
-    ), "external media should be orders of magnitude smaller"
+    assert len(thin.to_json()) * 100 < len(fat.to_json()), (
+        "external media should be orders of magnitude smaller"
+    )
 
 
 def test_s3_publisher_uploads_with_the_right_key_and_type(real_event, dual_channel_wav):

@@ -52,9 +52,9 @@ def test_every_attachment_carries_start_party_session_and_mediatype():
             [0],
         ), f"{attachment.get('purpose')} attachment is not scoped to the call's Session"
         assert attachment.get("body") is not None, f"{attachment.get('purpose')} has no body"
-        assert (
-            attachment.get("mediatype") == "application/json"
-        ), f"{attachment.get('purpose')} attachment has no mediatype"
+        assert attachment.get("mediatype") == "application/json", (
+            f"{attachment.get('purpose')} attachment has no mediatype"
+        )
 
 
 def test_backfilled_start_matches_created_at():
