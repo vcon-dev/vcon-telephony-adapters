@@ -143,13 +143,39 @@ class TestCreatedLineCallId:
         line = [m for m in _own_log(caplog).splitlines() if m.startswith("Created vCon")][0]
         assert line.endswith("(from: ***0142, to: ***0177)")
 
-    def test_an_id_with_odd_characters_is_not_printed(self, caplog):
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "12025550123",  # a bare number
+            "JaneDoe",  # a name
+            "tel:12025550123",
+            "+12025550123",  # a leading plus
+            "v3:AbCdEf0123456789\nINFO forged line",  # a newline forges a second line
+            "v3:AbCdEf0123456789 AbCd",  # a space
+            "v3:AbCdEf0123456789=AbCd",  # =
+            "v3:AbCdEf0123456789@AbCd",  # @
+            "v3:AbCdEf0123456789.AbCd",  # .
+            "v3:AbCdEf0123456789+AbCd",  # +
+            "v3:" + "a" * 15,  # one short of the minimum
+            "v3:" + "a" * 129,  # one over the maximum
+            "5e1f7a52-8c3b-4d0e-9a41-0123456789a",  # a short uuid
+            "5e1f7a52-8c3b-4d0e-9a41-0123456789ab\n",
+        ],
+    )
+    def test_only_a_v3_id_or_a_uuid_is_printed(self, bad, caplog):
         with caplog.at_level(logging.DEBUG):
-            TelnyxVconBuilder(download_recordings=False).build(
-                _recording(call_control_id="v3:x y\nINFO forged line")
-            )
+            TelnyxVconBuilder(download_recordings=False).build(_recording(call_control_id=bad))
         line = [m for m in _own_log(caplog).splitlines() if m.startswith("Created vCon")][0]
         assert "call=" not in line and "forged" not in _own_log(caplog)
+        assert line.endswith("(from: ***0142, to: ***0177)")
+
+    @pytest.mark.parametrize(
+        "good", ["v3:" + "a" * 16, "v3:" + "A_-9" * 32, "5e1f7a52-8c3b-4d0e-9a41-0123456789ab"]
+    )
+    def test_the_accepted_forms_are_printed(self, good, caplog):
+        with caplog.at_level(logging.DEBUG):
+            TelnyxVconBuilder(download_recordings=False).build(_recording(call_control_id=good))
+        assert f"(from: ***0142, to: ***0177) call={good}" in _own_log(caplog)
 
     def test_the_id_is_the_tag_value_the_vcon_already_holds(self):
         vcon = TelnyxVconBuilder(download_recordings=False).build(
