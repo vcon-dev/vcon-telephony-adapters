@@ -151,6 +151,8 @@ class TestCreatedLineCallId:
             "tel:12025550123",
             "+12025550123",  # a leading plus
             "v3:AbCdEf0123456789\nINFO forged line",  # a newline forges a second line
+            "v3:" + "a" * 16 + "\n",  # a newline with no space beside it
+            "v3:" + "a" * 16 + "\nx",  # a newline inside, no space
             "v3:AbCdEf0123456789 AbCd",  # a space
             "v3:AbCdEf0123456789=AbCd",  # =
             "v3:AbCdEf0123456789@AbCd",  # @
