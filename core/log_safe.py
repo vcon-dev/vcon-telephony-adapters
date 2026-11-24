@@ -42,6 +42,27 @@ _PHONE_RE = re.compile(
 _SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
 
+# A Telnyx call control id: `v3:` and 16 to 128 id characters, or a uuid. The same format the
+# receiver's collector accepts, so a bare number, a name or a `tel:` URI is never printed as an id.
+_CALL_ID_RE = re.compile(
+    r"v3:[A-Za-z0-9_\-]{16,128}"
+    r"|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+)
+
+
+def call_suffix(call_id: object) -> str:
+    """` call=<id>` for the end of a log line, or `` when there is no safe id.
+
+    The call control id is an opaque carrier id, not personal data, and it is what lets a log
+    search join this line to the same call's lines on other hosts. Only a `v3:` id or a uuid
+    passes, so a bare number, a name, a space, a newline or anything else cannot reach the log
+    or forge a log line.
+    """
+    if isinstance(call_id, str) and _CALL_ID_RE.fullmatch(call_id):
+        return f" call={call_id}"
+    return ""
+
+
 def mask_number(number: object) -> str:
     """Reduce a phone number to its last four digits, e.g. `***0101`.
 
