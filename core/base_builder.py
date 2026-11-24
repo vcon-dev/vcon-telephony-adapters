@@ -13,7 +13,7 @@ from vcon.dialog import Dialog
 from vcon.party import Party
 from vcon.session import Session
 
-from core.log_safe import mask_number, redact_text, redact_url
+from core.log_safe import call_suffix, mask_number, redact_text, redact_url
 
 from .encoding import base64url_encode
 from .lawful_basis import LawfulBasisConfig
@@ -96,6 +96,14 @@ class BaseRecordingData(ABC):
     def start_time(self) -> datetime:
         """Recording start time as datetime."""
         pass
+
+    @property
+    def call_control_id(self) -> str:
+        """The carrier's id for the call this recording belongs to, or "" when it has none.
+
+        Printed on the `Created vCon` line so a log search can join the call across hosts.
+        """
+        return ""
 
     @property
     def platform_tags(self) -> dict[str, str]:
@@ -345,6 +353,7 @@ class BaseVconBuilder(ABC):
                 f"Created vCon {vcon.uuid} from recording {recording_data.recording_id} "
                 f"(from: {mask_number(recording_data.from_number)}, "
                 f"to: {mask_number(recording_data.to_number)})"
+                f"{call_suffix(recording_data.call_control_id)}"
             )
 
             return vcon

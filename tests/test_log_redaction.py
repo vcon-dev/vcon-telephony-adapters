@@ -18,12 +18,16 @@ SIGNED_URL = (
 SECRETS = ("deadbeef0123", "AKIAFAKE", "X-Amz-Signature", "?X-Amz")
 
 
-def _recording(url: str = SIGNED_URL) -> TelnyxRecordingData:
+CALL_CONTROL_ID = "v3:AbCdEf0123456789_-AbCdEf0123456789"
+
+
+def _recording(url: str = SIGNED_URL, **extra) -> TelnyxRecordingData:
     return TelnyxRecordingData(
         {
             "data": {
                 "event_type": "call.recording.saved",
                 "payload": {
+                    **extra,
                     "recording_id": "rec-1",
                     "from": FROM_NUMBER,
                     "to": TO_NUMBER,
@@ -102,6 +106,56 @@ class TestBuildLog:
         assert f"Created vCon {vcon.uuid}" in _own_log(caplog)
         assert "(from: ***0142, to: ***0177)" in _own_log(caplog)
         _assert_clean(_own_log(caplog))
+
+
+class TestCreatedLineCallId:
+    """The Created vCon line ends with the call control id, so a log search joins the call by id."""
+
+    def test_telnyx_line_carries_the_call_control_id_after_the_masked_numbers(self, caplog):
+        builder = TelnyxVconBuilder(download_recordings=False)
+        with caplog.at_level(logging.DEBUG):
+            vcon = builder.build(_recording(call_control_id=CALL_CONTROL_ID))
+        assert (
+            f"Created vCon {vcon.uuid} from recording rec-1 "
+            f"(from: ***0142, to: ***0177) call={CALL_CONTROL_ID}"
+        ) in _own_log(caplog)
+        _assert_clean(_own_log(caplog))
+
+    def test_base_builder_line_carries_the_call_control_id(self, caplog):
+        from core.base_builder import BaseVconBuilder
+
+        class Stub(BaseVconBuilder):
+            ADAPTER_SOURCE = "stub"
+
+            def _download_recording(self, recording_data):
+                return None
+
+        with caplog.at_level(logging.DEBUG):
+            vcon = Stub(download_recordings=False).build(
+                _recording(call_control_id=CALL_CONTROL_ID)
+            )
+        assert f"(from: ***0142, to: ***0177) call={CALL_CONTROL_ID}" in _own_log(caplog)
+        assert vcon is not None
+
+    def test_no_call_control_id_leaves_the_line_as_it_was(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            TelnyxVconBuilder(download_recordings=False).build(_recording())
+        line = [m for m in _own_log(caplog).splitlines() if m.startswith("Created vCon")][0]
+        assert line.endswith("(from: ***0142, to: ***0177)")
+
+    def test_an_id_with_odd_characters_is_not_printed(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            TelnyxVconBuilder(download_recordings=False).build(
+                _recording(call_control_id="v3:x y\nINFO forged line")
+            )
+        line = [m for m in _own_log(caplog).splitlines() if m.startswith("Created vCon")][0]
+        assert "call=" not in line and "forged" not in _own_log(caplog)
+
+    def test_the_id_is_the_tag_value_the_vcon_already_holds(self):
+        vcon = TelnyxVconBuilder(download_recordings=False).build(
+            _recording(call_control_id=CALL_CONTROL_ID)
+        )
+        assert CALL_CONTROL_ID in str(vcon.vcon_dict["attachments"])
 
 
 class TestTelnyxDownloadLog:

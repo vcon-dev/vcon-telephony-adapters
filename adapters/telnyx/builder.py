@@ -18,7 +18,7 @@ from vcon.session import Session
 
 from core.base_builder import MIME_TYPES, BaseRecordingData, BaseVconBuilder
 from core.lawful_basis import LawfulBasisConfig, RelayedBasisError, RelayedLawfulBasis
-from core.log_safe import mask_number, redact_text, redact_url
+from core.log_safe import call_suffix, mask_number, redact_text, redact_url
 from core.media_publisher import AudioPublisher
 
 from .call_session import (
@@ -406,6 +406,12 @@ class TelnyxRecordingData(BaseRecordingData):
         return self._payload.get("recording_id", self._payload.get("call_control_id", ""))
 
     @property
+    def call_control_id(self) -> str:
+        """Telnyx call control id (`v3:...`; for TeXML, the CallSid)."""
+        value = self._payload.get("call_control_id", "")
+        return value if isinstance(value, str) else ""
+
+    @property
     def call_session_id(self) -> str:
         """Telnyx call session ID."""
         return self._payload.get("call_session_id", "")
@@ -676,11 +682,12 @@ class TelnyxVconBuilder(BaseVconBuilder):
                 vcon.uuid,
             )
         logger.info(
-            "Created vCon %s from recording %s (from: %s, to: %s)",
+            "Created vCon %s from recording %s (from: %s, to: %s)%s",
             vcon.uuid,
             recording_data.recording_id,
             mask_number(recording_data.from_number),
             mask_number(recording_data.to_number),
+            call_suffix(recording_data.call_control_id),
         )
         return vcon
 

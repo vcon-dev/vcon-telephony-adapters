@@ -42,6 +42,21 @@ _PHONE_RE = re.compile(
 _SIP_USER_RE = re.compile(r"^(?:sips?|tel):([^@;>]+)(?:@|;|$)", re.IGNORECASE)
 
 
+_CALL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_\-]{0,127}")
+
+
+def call_suffix(call_id: object) -> str:
+    """` call=<id>` for the end of a log line, or `` when there is no safe id.
+
+    The call control id is an opaque carrier id, not personal data, and it is what lets a log
+    search join this line to the same call's lines on other hosts. Only a plain token passes,
+    so an id carrying a space, a newline or anything else cannot forge a log line.
+    """
+    if isinstance(call_id, str) and _CALL_ID_RE.fullmatch(call_id):
+        return f" call={call_id}"
+    return ""
+
+
 def mask_number(number: object) -> str:
     """Reduce a phone number to its last four digits, e.g. `***0101`.
 
